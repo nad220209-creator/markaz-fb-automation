@@ -76,7 +76,6 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    # Updated to active current Gemini models
     models_to_try = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-1.5-flash"]
     for model_name in models_to_try:
         try:
@@ -244,9 +243,9 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
 
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(0, 128, 0)
-    pdf.cell(0, 7, f"Selling Price: PKR {selling_price}", ln=True)
+    pdf.cell(0, 7, f"Selling Price: PKR {selling_price}", new_x=XPos.LMARGIN if 'XPos' in globals() else 'LMARGIN', new_y=YPos.NEXT if 'YPos' in globals() else 'NEXT')
     pdf.set_text_color(0, 51, 102)
-    pdf.cell(0, 7, f"Seller: {SELLER_NAME} | WhatsApp: {WHATSAPP_NUMBER} ({WHATSAPP_LINK})", ln=True)
+    pdf.cell(0, 7, f"Seller: {SELLER_NAME} | WhatsApp: {WHATSAPP_NUMBER} ({WHATSAPP_LINK})", new_x='LMARGIN', new_y='NEXT')
     pdf.ln(4)
 
     sections = [
@@ -259,7 +258,7 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
     for header, content in sections:
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(0, 51, 102)
-        pdf.cell(0, 7, header, ln=True)
+        pdf.cell(0, 7, header, new_x='LMARGIN', new_y='NEXT')
         pdf.ln(1)
 
         pdf.set_font("Helvetica", "", 10)
@@ -270,7 +269,7 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
     if image_files:
         pdf.set_font("Helvetica", "B", 12)
         pdf.set_text_color(0, 0, 0)
-        pdf.cell(0, 8, f"Product Gallery Photos ({len(image_files)} extracted):", ln=True)
+        pdf.cell(0, 8, f"Product Gallery Photos ({len(image_files)} extracted):", new_x='LMARGIN', new_y='NEXT')
         pdf.ln(3)
 
         for img_path in image_files:
@@ -292,7 +291,7 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
     media = MediaFileUpload(pdf_path, mimetype='application/pdf', resumable=True)
     uploaded = drive_service.files().create(
         body=file_metadata,
-        media_media=media,
+        media_body=media,  # Fixed argument name from media_media to media_body
         fields='id, webViewLink'
     ).execute()
 
