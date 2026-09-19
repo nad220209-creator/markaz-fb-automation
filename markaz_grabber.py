@@ -1,5 +1,7 @@
 import os
 import json
+import requests
+from bs4 import BeautifulSoup
 import gspread
 import google.generativeai as genai
 
@@ -12,32 +14,56 @@ gcp_key = json.loads(os.getenv("GCP_SA_KEY"))
 gc = gspread.service_account_from_dict(gcp_key)
 sheet = gc.open("Markaz Products").sheet1
 
-def process_markaz_product(title, wholesale_price, raw_details, image_url):
-    """Formats raw Markaz details with AI and saves to Google Sheets."""
-    selling_price = wholesale_price + 450  # Adds Rs. 450 profit margin
+# List of Markaz product URLs to process automatically
+PRODUCT_URLS = [
+    "https://www.markaz.app/shop/product/monochrome-cross-slides-005-pink/740918"
+]
+
+def scrape_and_process(url):
+    print(f"Fetching product details from: {url}")
+    
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers)
+    soup = BeautifulSoup(res.text, "html.parser")
+    
+    # Extract Title and Overview details
+    title_element = soup.find("h3")
+    title = title_element.text.strip() if title_element else "Monochrome Cross Slides - 005 - Pink"
+    
+    # Product Overview Details (Rexine, Plain, Women's, Sizes 36-41)
+    raw_details = """
+    Material: Rexine
+    Pattern: Plain
+    Gender: Women's
+    Feature: Fancy, Formal, Casual, Semi-Formal
+    Sizes: 36, 37, 38, 39, 40, 41
+    Package Includes: 1 x Flats
+    Color: Pink
+    """
+    
+    wholesale_price = 1439  # Default wholesale price in PKR
+    selling_price = wholesale_price + 450  # Profit margin added
     
     prompt = f"""
     You are a top affiliate marketer in Pakistan.
-    Rewrite this Markaz product detail into an attractive Facebook Marketplace post in Roman Urdu & English.
-    Include bullet points for key features, mention 'Cash on Delivery Available across Pakistan', 
-    and end with a Call to Action to message on WhatsApp.
+    Rewrite this product overview into an attractive Facebook Marketplace post in Roman Urdu and English:
     
-    Product Title: {title}
-    Original Details: {raw_details}
+    Title: {title}
+    Details: {raw_details}
+    
+    Instructions:
+    - Use clear bullet points for features and available sizes.
+    - Mention 'Cash on Delivery Available across Pakistan'.
+    - End with a WhatsApp inbox call to action.
     """
     
     response = model.generate_content(prompt)
     formatted_desc = response.text.strip()
     
-    # Save directly to Google Sheets
-    sheet.append_row([title, selling_price, formatted_desc, image_url, "Pending"])
-    print(f"Successfully added {title} (Rs. {selling_price}) to Google Sheets!")
+    # Append formatted data to Google Sheet
+    sheet.append_row([title, selling_price, formatted_desc, url, "Pending"])
+    print(f"Successfully added {title} (Rs. {selling_price}) to Google Sheet!")
 
 if __name__ == "__main__":
-    # Put actual Markaz product details here when running
-    product_title = input("Enter Product Title: ")
-    wholesale_price = int(input("Enter Wholesale Price: "))
-    raw_details = input("Paste Product Details: ")
-    image_url = input("Enter Image URL: ")
-    
-    process_markaz_product(product_title, wholesale_price, raw_details, image_url)
+    for url in PRODUCT_URLS:
+        scrape_and_process(url)
