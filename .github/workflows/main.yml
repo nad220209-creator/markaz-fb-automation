@@ -2,8 +2,8 @@ name: Markaz Product Grabber
 
 on:
   schedule:
-    - cron: '0 3 * * *' # Runs automatically every day at 8:00 AM PKT
-  workflow_dispatch: # Allows you to run it manually anytime with 1 click
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 jobs:
   run-grabber:
@@ -26,4 +26,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
         run: python markaz_grabber.py
