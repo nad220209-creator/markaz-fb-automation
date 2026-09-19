@@ -26,23 +26,41 @@ def generate_ai_description(title, wholesale_price, raw_details):
     - End with a WhatsApp/Messenger call to action for buyers to send an inbox message.
     """
     
+    # Try fetching available models dynamically from the API key
+    try:
+        available_models = [
+            m.name.replace("models/", "") for m in genai.list_models()
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        print(f"Active models on this API key: {available_models}")
+        for model_name in available_models:
+            try:
+                print(f"Trying dynamic model: {model_name}")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                return response.text.strip()
+            except Exception as e:
+                print(f"Model {model_name} notice: {e}")
+    except Exception as list_err:
+        print(f"Could not list models dynamically: {list_err}")
+
+    # Fallback list with active models
     models_to_try = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-pro"
+        "gemini-3.6-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-pro"
     ]
     
     for model_name in models_to_try:
         try:
+            print(f"Trying fallback model: {model_name}")
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
             print(f"Model {model_name} fallback notice: {e}")
             
-    raise RuntimeError("All Gemini model endpoints failed. Check your Gemini API Key.")
+    raise RuntimeError("All Gemini model endpoints failed. Please check your GEMINI_API_KEY in Google AI Studio.")
 
 # 2. Setup Google Sheets Access
 SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
