@@ -51,8 +51,8 @@ CRITICAL INSTRUCTIONS:
 # 2. Setup Google Credentials & Services
 SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
 
-# PASTE YOUR GOOGLE DRIVE FOLDER ID HERE
-MAIN_DRIVE_FOLDER_ID = "YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE"
+# GOOGLE DRIVE FOLDER ID FOR 'Markaz Product Images'
+MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
 gcp_key = json.loads(os.getenv("GCP_SA_KEY"))
 scopes = [
