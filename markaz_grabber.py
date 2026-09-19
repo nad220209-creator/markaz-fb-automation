@@ -11,8 +11,7 @@ from fpdf import FPDF
 import gspread
 import google.generativeai as genai
 
-from google.oauth2.credentials import Credentials as UserCredentials
-from google.auth.transport.requests import Request
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
@@ -29,7 +28,6 @@ WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
 
 def clean_url(raw_url):
-    """Ensures raw URL strings have a valid https:// scheme."""
     match = re.search(r'https?://[^\s\]\)\"]+', raw_url)
     if match:
         return match.group(0)
@@ -39,7 +37,6 @@ def clean_url(raw_url):
     return cleaned
 
 def generate_multi_platform_copy(title, selling_price, raw_details):
-    """Generates structured copy for Facebook Marketplace, Instagram, TikTok, and FB Groups with custom contact info."""
     prompt = f"""
 You are an expert e-commerce affiliate marketer in Pakistan.
 Generate distinct, high-converting social media posts for this product:
@@ -61,9 +58,7 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    # Active Gemini Models targeted directly to prevent rate-limit loops
-    models_to_try = ["gemini-3.6-flash", "gemini-1.5-flash-latest", "gemini-3.1-pro-preview"]
-    
+    models_to_try = ["gemini-3.6-flash", "gemini-1.5-flash-latest", "gemini-2.5-flash"]
     for model_name in models_to_try:
         try:
             print(f"Generating AI copy with model: {model_name}...")
@@ -93,37 +88,26 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
     raise RuntimeError("All Gemini model endpoints failed.")
 
-# 2. Setup Google Credentials
+# 2. Setup Google Credentials (Permanent Service Account)
 SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
 MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxF_kyu1ibkTO-AWhRCIJVmP"
 
-refresh_token = os.getenv("GDRIVE_REFRESH_TOKEN")
-client_id = os.getenv("GDRIVE_CLIENT_ID")
-client_secret = os.getenv("GDRIVE_CLIENT_SECRET")
 gcp_sa_key_str = os.getenv("GCP_SA_KEY")
+if not gcp_sa_key_str:
+    raise ValueError("Missing GCP_SA_KEY in environment variables!")
 
-if not all([gcp_sa_key_str, refresh_token, client_id, client_secret]):
-    raise ValueError("Missing GCP_SA_KEY or GDRIVE secrets in environment variables!")
+sa_info = json.loads(gcp_sa_key_str)
 
-# Google Sheets Client
-gc = gspread.service_account_from_dict(json.loads(gcp_sa_key_str))
+# Google Sheets Client via Service Account
+gc = gspread.service_account_from_dict(sa_info)
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 
-# Google Drive Client via Personal User OAuth
-drive_service = None
-try:
-    user_creds = UserCredentials(
-        token=None,
-        refresh_token=refresh_token.strip(),
-        client_id=client_id.strip(),
-        client_secret=client_secret.strip(),
-        token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)"
-    )
-    user_creds.refresh(Request())
-    drive_service = build('drive', 'v3', credentials=user_creds)
-    print("Google Drive OAuth connection authenticated successfully!")
-except Exception as auth_err:
-    print(f"Google Drive OAuth warning: {auth_err}")
+# Google Drive Client via Service Account Credentials
+drive_scopes = ['[https://www.googleapis.com/auth/drive](https://www.googleapis.com/auth/drive)']
+sa_creds = Credentials.from_service_account_info(sa_info, scopes=drive_scopes)
+drive_service = build('drive', 'v3', credentials=sa_creds)
+
+print("Permanently authenticated Google Drive & Sheets via Service Account!")
 
 def clean_text_for_pdf(text):
     if not text:
@@ -135,7 +119,6 @@ def sanitize_filename(name):
     return clean if clean else "Markaz_Product"
 
 def fetch_media_and_unzip(soup, page_url, temp_dir):
-    """Scrapes images directly from Markaz web elements and unzips any media archives if present."""
     downloaded_img_paths = []
     zip_url = None
 
@@ -228,17 +211,14 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
     return downloaded_img_paths
 
 def create_structured_pdf(title, selling_price, copy_dict, image_files, output_path):
-    """Generates a structured PDF with separate sections for each social media platform including seller details."""
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    # Header Title
     pdf.set_font("Helvetica", "B", 16)
     pdf.multi_cell(0, 8, clean_text_for_pdf(title), align="L")
     pdf.ln(2)
 
-    # Price & Seller Info Tag
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(0, 128, 0)
     pdf.cell(0, 7, f"Selling Price: PKR {selling_price}", ln=True)
@@ -264,7 +244,6 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
         pdf.multi_cell(0, 5, clean_text_for_pdf(content))
         pdf.ln(5)
 
-    # Image Gallery
     if image_files:
         pdf.set_font("Helvetica", "B", 12)
         pdf.set_text_color(0, 0, 0)
@@ -281,11 +260,7 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
     pdf.output(output_path)
 
 def upload_pdf_to_drive(pdf_path, pdf_filename):
-    if not drive_service:
-        print("Skipping Google Drive upload: OAuth service unauthenticated.")
-        return "Pending"
-
-    print(f"Uploading '{pdf_filename}.pdf' to Google Drive...")
+    print(f"Uploading '{pdf_filename}.pdf' to Google Drive via Service Account...")
     file_metadata = {
         'name': f"{pdf_filename}.pdf",
         'mimeType': 'application/pdf',
@@ -302,7 +277,7 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
     print(f"SUCCESS: Uploaded PDF to Drive -> {folder_link}")
     return folder_link
 
-# Target product links on the Markaz website
+# Target product links
 PRODUCT_URLS = [
     "[https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
 ]
@@ -371,7 +346,7 @@ def scrape_and_process(raw_url):
         "Pending"
     ], index=2)
 
-    print(f"SUCCESS: Saved multi-platform PDF with contact info for '{title}' to Google Drive & Google Sheet!")
+    print(f"SUCCESS: Saved multi-platform PDF for '{title}' to Google Drive & Google Sheet!")
 
 if __name__ == "__main__":
     for product_url in PRODUCT_URLS:
