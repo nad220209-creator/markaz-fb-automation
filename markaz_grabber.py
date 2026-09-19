@@ -8,10 +8,11 @@ import gspread
 import google.generativeai as genai
 
 from google.oauth2.credentials import Credentials as UserCredentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
-# 1. Setup Gemini API
+# 1. Setup Gemini API with Dynamic Model Discovery
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
@@ -30,22 +31,43 @@ CRITICAL INSTRUCTIONS:
 - Use emojis, clear bullet points for features/sizes, mention 'Cash on Delivery Available across Pakistan', and end with a WhatsApp inbox Call to Action.
 """
     
-    models_to_try = [
-        "gemini-3.6-flash",
-        "gemini-2.5-flash",
-        "gemini-1.5-flash-latest"
+    # Query all active models supported by the API Key
+    try:
+        available_models = [
+            m.name.replace("models/", "") for m in genai.list_models()
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        print(f"Active models on this API key: {available_models}")
+        for model_name in available_models:
+            try:
+                print(f"Trying model: {model_name}")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as e:
+                print(f"Model {model_name} notice: {e}")
+    except Exception as list_err:
+        print(f"Dynamic model lookup failed: {list_err}")
+
+    # Standard fallback models list
+    fallback_models = [
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-2.0-flash"
     ]
     
-    for model_name in models_to_try:
+    for model_name in fallback_models:
         try:
+            print(f"Trying fallback model: {model_name}")
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             if response and response.text:
                 return response.text.strip()
         except Exception as e:
-            print(f"Notice for model {model_name}: {e}")
+            print(f"Fallback model {model_name} error: {e}")
             
-    raise RuntimeError("All Gemini model endpoints failed. Please verify your GEMINI_API_KEY.")
+    raise RuntimeError("All Gemini model endpoints failed. Please check your GEMINI_API_KEY.")
 
 # 2. Setup Google Service Clients
 SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
@@ -56,7 +78,7 @@ gcp_key = json.loads(os.getenv("GCP_SA_KEY"))
 gc = gspread.service_account_from_dict(gcp_key)
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 
-# Google Drive client via User OAuth Credentials (uses personal 15 GB storage)
+# Google Drive client via Personal User OAuth Credentials (uses personal storage quota)
 user_creds = UserCredentials(
     token=None,
     refresh_token=os.getenv("GDRIVE_REFRESH_TOKEN"),
@@ -64,17 +86,26 @@ user_creds = UserCredentials(
     client_secret=os.getenv("GDRIVE_CLIENT_SECRET"),
     token_uri="https://oauth2.googleapis.com/token"
 )
+
+# Refresh token to obtain an active access token
+try:
+    user_creds.refresh(Request())
+    print("Successfully authenticated Google Drive User OAuth Credentials!")
+except Exception as auth_err:
+    print(f"OAuth refresh notice: {auth_err}")
+
 drive_service = build('drive', 'v3', credentials=user_creds)
 
 def ensure_clean_headers():
     expected_headers = ["Title", "Price (PKR)", "Description", "Drive Image Folder Link", "Status"]
     first_row = sheet.row_values(1)
     if first_row != expected_headers:
+        print("Formatting Row 1 with standard clean headers...")
         sheet.insert_row(expected_headers, index=1)
 
 def create_drive_folder_and_upload_images(product_title, image_urls):
-    """Creates a subfolder in your personal Google Drive and uploads real image files."""
-    print(f"Creating Google Drive folder for: {product_title}...")
+    """Creates a subfolder in your personal Google Drive and uploads real JPEG image files."""
+    print(f"Creating Google Drive subfolder for: {product_title}...")
     folder_metadata = {
         'name': product_title,
         'mimeType': 'application/vnd.google-apps.folder',
@@ -85,10 +116,10 @@ def create_drive_folder_and_upload_images(product_title, image_urls):
     subfolder_id = folder.get('id')
     folder_link = folder.get('webViewLink')
 
-    # Download each product image and upload to Drive
+    # Download each product photo and upload directly into the subfolder
     for idx, img_url in enumerate(image_urls, start=1):
         try:
-            print(f"Uploading image {idx}/{len(image_urls)} to Google Drive...")
+            print(f"Uploading image {idx}/{len(image_urls)} to Drive...")
             res = requests.get(img_url, timeout=15)
             if res.status_code == 200:
                 media = MediaIoBaseUpload(io.BytesIO(res.content), mimetype='image/jpeg')
@@ -98,13 +129,13 @@ def create_drive_folder_and_upload_images(product_title, image_urls):
                 }
                 drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         except Exception as err:
-            print(f"Failed image upload: {err}")
+            print(f"Failed image upload ({img_url}): {err}")
 
     return folder_link
 
-# List of Markaz product URLs
+# List of Markaz product URLs to process automatically
 PRODUCT_URLS = [
-    "https://www.markaz.app/product/350"
+    "https://www.markaz.app/product/ratings-and-reviews/00224bfb-8ddc-4c6e-9331-5f21fca6913f"
 ]
 
 def scrape_and_process(url):
@@ -136,13 +167,13 @@ def scrape_and_process(url):
         except ValueError:
             pass
             
-    selling_price = wholesale_price + 450
+    selling_price = wholesale_price + 450  # Adding PKR 450 profit margin
     
     # Extract Details / Overview
     overview_section = soup.find("div", {"id": "471"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
     raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
     
-    # Extract Product Images
+    # Scrape Product Images
     image_urls = []
     og_img = soup.find("meta", property="og:image")
     if og_img and og_img.get("content"):
@@ -150,7 +181,7 @@ def scrape_and_process(url):
         
     for img in soup.find_all("img"):
         src = img.get("src") or img.get("data-src")
-        if src and "static.markaz.app" in src and "thumbnails" not in src:
+        if src and "static.markaz.app" in src:
             clean_src = src.split("?")[0]
             if clean_src not in image_urls:
                 image_urls.append(clean_src)
@@ -168,7 +199,7 @@ def scrape_and_process(url):
     
     # Write row to Google Sheet
     sheet.insert_row([title, selling_price, formatted_desc, drive_folder_link, "Pending"], index=2)
-    print(f"SUCCESS: Uploaded image files to Drive & saved '{title}' to Google Sheet!")
+    print(f"SUCCESS: Uploaded images to Drive & saved '{title}' to Google Sheet!")
 
 if __name__ == "__main__":
     for product_url in PRODUCT_URLS:
