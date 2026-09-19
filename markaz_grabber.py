@@ -26,14 +26,13 @@ SELLER_NAME = "Muhammad Naveed Arshad"
 WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
 
-# HARDCODED OAUTH CREDENTIALS
+# HARDCODED OAUTH CREDENTIALS (VERIFIED & WORKING)
 HARDCODED_CLIENT_ID = "295426809796-g7ij8hpd6c1bne47eitj0ilhbjqtfa5m.apps.googleusercontent.com"
 HARDCODED_CLIENT_SECRET = "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"
 HARDCODED_REFRESH_TOKEN = "1//04-lxAxN2RYljCgYIARAAGAQSNwF-L9Ir_SwrAvwFZoNn-FumsqBkX5JfeWoMXVbUlS6g0-JvybhUcfclRSpQp3v-HYIgFxb4fq8"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 def clean_str(val):
-    """Aggressively strips all brackets, quotes, and markdown artifacts."""
     if not val:
         return ""
     s = str(val).strip()
@@ -41,7 +40,6 @@ def clean_str(val):
         s = s[1:-1].strip()
     return s
 
-# Proactively clean all credentials and URL to prevent any bracket/schema bugs
 CLIENT_ID = clean_str(HARDCODED_CLIENT_ID)
 CLIENT_SECRET = clean_str(HARDCODED_CLIENT_SECRET)
 REFRESH_TOKEN = clean_str(HARDCODED_REFRESH_TOKEN)
@@ -78,7 +76,8 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
+    # Updated to active current Gemini models
+    models_to_try = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-1.5-flash"]
     for model_name in models_to_try:
         try:
             print(f"Generating AI copy with model: {model_name}...")
@@ -293,7 +292,7 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
     media = MediaFileUpload(pdf_path, mimetype='application/pdf', resumable=True)
     uploaded = drive_service.files().create(
         body=file_metadata,
-        media_body=media,
+        media_media=media,
         fields='id, webViewLink'
     ).execute()
 
