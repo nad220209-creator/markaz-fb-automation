@@ -29,14 +29,17 @@ WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
 
 def clean_url(raw_url):
-    """Extracts a clean HTTP/HTTPS URL from any raw string or markdown link format."""
+    """Ensures raw URL strings have a valid https:// scheme."""
     match = re.search(r'https?://[^\s\]\)\"]+', raw_url)
     if match:
         return match.group(0)
-    return raw_url.strip("[]()'\" ")
+    cleaned = raw_url.strip("[]()'\" ")
+    if not cleaned.startswith("http"):
+        cleaned = "https://" + cleaned.lstrip("/")
+    return cleaned
 
 def generate_multi_platform_copy(title, selling_price, raw_details):
-    """Generates structured copy for Facebook Marketplace, Instagram, TikTok, and FB Groups with custom contact info."""
+    """Generates structured copy for Facebook Marketplace, Instagram, TikTok, and FB Groups with seller contact info."""
     prompt = f"""
 You are an expert e-commerce affiliate marketer in Pakistan.
 Generate distinct, high-converting social media posts for this product:
@@ -295,6 +298,7 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
     print(f"SUCCESS: Uploaded PDF to Drive -> {folder_link}")
     return folder_link
 
+# Target product links
 PRODUCT_URLS = [
     "[https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
 ]
