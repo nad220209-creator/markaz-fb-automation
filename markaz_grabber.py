@@ -6,50 +6,27 @@ from bs4 import BeautifulSoup
 import gspread
 import google.generativeai as genai
 
-# 1. Setup Gemini API with Dynamic Model Selection
+# 1. Setup Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
-def get_best_available_model():
+def generate_ai_description(title, wholesale_price, raw_details):
+    prompt = f"""
+    You are a top affiliate marketer in Pakistan.
+    Rewrite the following product overview into an attractive Facebook Marketplace post in Roman Urdu and English.
+    
+    Product Title: {title}
+    Wholesale Price: PKR {wholesale_price}
+    Product Details: {raw_details}
+    
+    Instructions:
+    - Write a short, clear, catchy title.
+    - Include bullet points highlighting key features (Material, Available Sizes, Colors, Gender).
+    - Clearly state: 'Cash on Delivery Available across Pakistan'.
+    - End with a WhatsApp/Messenger call to action for buyers to send an inbox message.
     """
-    Queries Google AI API for all available models supporting content generation
-    and picks the best active model dynamically.
-    """
-    try:
-        available_models = [
-            m.name for m in genai.list_models()
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        print(f"Available models on this API key: {available_models}")
-        
-        preferred_models = [
-            "models/gemini-2.0-flash",
-            "models/gemini-1.5-flash-latest",
-            "models/gemini-1.5-flash",
-            "models/gemini-1.5-pro-latest",
-            "models/gemini-1.5-pro",
-            "models/gemini-pro"
-        ]
-        
-        for pref in preferred_models:
-            if pref in available_models:
-                print(f"Selected primary model: {pref}")
-                return genai.GenerativeModel(pref)
-        
-        if available_models:
-            print(f"Fallback to first listed model: {available_models[0]}")
-            return genai.GenerativeModel(available_models[0])
-            
-    except Exception as e:
-        print(f"Could not list models dynamically: {e}. Switching to model fallback list.")
-
-    return genai.GenerativeModel("gemini-1.5-flash-latest")
-
-def generate_with_fallback(prompt):
-    """
-    Attempts content generation and cycles through model names if one fails.
-    """
-    candidate_names = [
+    
+    models_to_try = [
         "gemini-2.0-flash",
         "gemini-1.5-flash-latest",
         "gemini-1.5-flash",
@@ -57,32 +34,24 @@ def generate_with_fallback(prompt):
         "gemini-pro"
     ]
     
-    try:
-        primary_model = get_best_available_model()
-        response = primary_model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as err:
-        print(f"Primary model generation failed ({err}). Trying candidate models...")
-
-    for name in candidate_names:
+    for model_name in models_to_try:
         try:
-            print(f"Retrying with candidate model: {name}")
-            fallback_model = genai.GenerativeModel(name)
-            response = fallback_model.generate_content(prompt)
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
-            print(f"Candidate '{name}' failed: {e}")
+            print(f"Model {model_name} fallback notice: {e}")
             
-    raise RuntimeError("All Gemini model endpoints failed. Please check your API Key status in Google AI Studio.")
+    raise RuntimeError("All Gemini model endpoints failed. Check your Gemini API Key.")
 
-# 2. Setup Google Sheets Access using exact Spreadsheet ID
+# 2. Setup Google Sheets Access
 SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
 gcp_key = json.loads(os.getenv("GCP_SA_KEY"))
 gc = gspread.service_account_from_dict(gcp_key)
 
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 
-# Markaz product URLs to process automatically
+# Markaz product URLs
 PRODUCT_URLS = [
     "https://www.markaz.app/shop/product/monochrome-cross-slides-005-pink/740918"
 ]
@@ -93,61 +62,49 @@ def scrape_and_process(url):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    try:
-        res = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, "html.parser")
-        
-        # Extract Product Title
-        title_tag = soup.find("h3") or soup.find("h1")
-        title = title_tag.text.strip() if title_tag else "Monochrome Cross Slides - 005 - Pink"
-        
-        # Extract Wholesale Price
-        price_text = ""
-        for tag in soup.find_all(string=re.compile(r"PKR", re.IGNORECASE)):
-            price_text += " " + str(tag).strip()
-            
-        digits = re.findall(r"\d[\d,]*", price_text)
-        wholesale_price = 1439  # Default price fallback from Markaz page
-        if digits:
-            try:
-                extracted = int(digits[0].replace(",", ""))
-                if extracted > 100:
-                    wholesale_price = extracted
-            except ValueError:
-                pass
-                
-        selling_price = wholesale_price + 450  # Adding Rs. 450 profit margin
-        
-        # Extract Overview & Product Highlights
-        overview_section = soup.find("div", {"id": "471"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
-        if overview_section:
-            raw_details = overview_section.text.strip()
-        else:
-            raw_details = soup.get_text()[:2000]
-            
-        prompt = f"""
-        You are a top affiliate marketer in Pakistan.
-        Rewrite the following product overview into an attractive, high-converting Facebook Marketplace post in Roman Urdu and English.
-        
-        Product Title: {title}
-        Wholesale Price: PKR {wholesale_price}
-        Product Details: {raw_details}
-        
-        Instructions:
-        - Write a short, clear, catchy title.
-        - Include bullet points highlighting key features (Material, Available Sizes, Colors, Gender).
-        - Clearly state: 'Cash on Delivery Available across Pakistan'.
-        - End with a WhatsApp/Messenger call to action for buyers to send an inbox message.
-        """
-        
-        formatted_desc = generate_with_fallback(prompt)
-        
-        # Insert product directly at Row 2 (right below header)
-        sheet.insert_row([title, selling_price, formatted_desc, url, "Pending"], index=2)
-        print(f"SUCCESS: Added '{title}' (Selling Price: Rs. {selling_price}) directly to Row 2 in Google Sheet!")
+    res = requests.get(url, headers=headers, timeout=15)
+    res.raise_for_status()
+    soup = BeautifulSoup(res.text, "html.parser")
+    
+    # Extract Title
+    title_tag = soup.find("h3") or soup.find("h1")
+    title = title_tag.text.strip() if title_tag else "Monochrome Cross Slides - 005 - Pink"
+    
+    # Extract Main Product Image URL
+    image_tag = soup.find("meta", property="og:image")
+    if image_tag and image_tag.get("content"):
+        image_url = image_tag["content"]
+    else:
+        img_elem = soup.find("img")
+        image_url = img_elem["src"] if img_elem and img_elem.get("src") else url
 
-    except Exception as e:
-        print(f"Error processing URL {url}: {e}")
+    # Extract Wholesale Price
+    price_text = ""
+    for tag in soup.find_all(string=re.compile(r"PKR", re.IGNORECASE)):
+        price_text += " " + str(tag).strip()
+        
+    digits = re.findall(r"\d[\d,]*", price_text)
+    wholesale_price = 1439
+    if digits:
+        try:
+            extracted = int(digits[0].replace(",", ""))
+            if extracted > 100:
+                wholesale_price = extracted
+        except ValueError:
+            pass
+            
+    selling_price = wholesale_price + 450
+    
+    # Extract Details
+    overview_section = soup.find("div", {"id": "471"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
+    raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
+    
+    print("Generating AI Description...")
+    formatted_desc = generate_ai_description(title, wholesale_price, raw_details)
+    
+    print(f"Writing to Google Sheet ID: {SPREADSHEET_ID}...")
+    sheet.insert_row([title, selling_price, formatted_desc, image_url, "Pending"], index=2)
+    print(f"SUCCESS: Added '{title}' (Rs. {selling_price}) to Google Sheet!")
 
 if __name__ == "__main__":
     for product_url in PRODUCT_URLS:
