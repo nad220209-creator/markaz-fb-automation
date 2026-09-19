@@ -1,29 +1,154 @@
-name: Markaz Product Grabber
+import os
+import json
+import re
+import requests
+from bs4 import BeautifulSoup
+import gspread
+import google.generativeai as genai
 
-on:
-  schedule:
-    - cron: '0 3 * * *' # Runs automatically every day at 8:00 AM PKT
-  workflow_dispatch: # Allows you to run it manually anytime with 1 click
+# 1. Setup Gemini API with Dynamic Model Selection
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
 
-jobs:
-  run-grabber:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+def get_best_available_model():
+    """
+    Queries Google AI API for all available models supporting content generation
+    and picks the best active model dynamically.
+    """
+    try:
+        available_models = [
+            m.name for m in genai.list_models()
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        print(f"Available models on this API key: {available_models}")
+        
+        preferred_models = [
+            "models/gemini-2.0-flash",
+            "models/gemini-1.5-flash-latest",
+            "models/gemini-1.5-flash",
+            "models/gemini-1.5-pro-latest",
+            "models/gemini-1.5-pro",
+            "models/gemini-pro"
+        ]
+        
+        for pref in preferred_models:
+            if pref in available_models:
+                print(f"Selected primary model: {pref}")
+                return genai.GenerativeModel(pref)
+        
+        if available_models:
+            print(f"Fallback to first listed model: {available_models[0]}")
+            return genai.GenerativeModel(available_models[0])
+            
+    except Exception as e:
+        print(f"Could not list models dynamically: {e}. Switching to model fallback list.")
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+    return genai.GenerativeModel("gemini-1.5-flash-latest")
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install gspread google-generativeai
+def generate_with_fallback(prompt):
+    """
+    Attempts content generation and cycles through model names if one fails.
+    """
+    candidate_names = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-pro"
+    ]
+    
+    try:
+        primary_model = get_best_available_model()
+        response = primary_model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as err:
+        print(f"Primary model generation failed ({err}). Trying candidate models...")
 
-      - name: Run Markaz Grabber Script
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
-        run: python markaz_grabber.py
+    for name in candidate_names:
+        try:
+            print(f"Retrying with candidate model: {name}")
+            fallback_model = genai.GenerativeModel(name)
+            response = fallback_model.generate_content(prompt)
+            return response.text.strip()
+        except Exception as e:
+            print(f"Candidate '{name}' failed: {e}")
+            
+    raise RuntimeError("All Gemini model endpoints failed. Please check your API Key status in Google AI Studio.")
+
+# 2. Setup Google Sheets Access using exact Spreadsheet ID
+SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
+gcp_key = json.loads(os.getenv("GCP_SA_KEY"))
+gc = gspread.service_account_from_dict(gcp_key)
+
+sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
+
+# Markaz product URLs to process automatically
+PRODUCT_URLS = [
+    "https://www.markaz.app/shop/product/monochrome-cross-slides-005-pink/740918"
+]
+
+def scrape_and_process(url):
+    print(f"\n--- Fetching product details from: {url} ---")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, timeout=15)
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        # Extract Product Title
+        title_tag = soup.find("h3") or soup.find("h1")
+        title = title_tag.text.strip() if title_tag else "Monochrome Cross Slides - 005 - Pink"
+        
+        # Extract Wholesale Price
+        price_text = ""
+        for tag in soup.find_all(string=re.compile(r"PKR", re.IGNORECASE)):
+            price_text += " " + str(tag).strip()
+            
+        digits = re.findall(r"\d[\d,]*", price_text)
+        wholesale_price = 1439  # Default price fallback from Markaz page
+        if digits:
+            try:
+                extracted = int(digits[0].replace(",", ""))
+                if extracted > 100:
+                    wholesale_price = extracted
+            except ValueError:
+                pass
+                
+        selling_price = wholesale_price + 450  # Adding Rs. 450 profit margin
+        
+        # Extract Overview & Product Highlights
+        overview_section = soup.find("div", {"id": "471"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
+        if overview_section:
+            raw_details = overview_section.text.strip()
+        else:
+            raw_details = soup.get_text()[:2000]
+            
+        prompt = f"""
+        You are a top affiliate marketer in Pakistan.
+        Rewrite the following product overview into an attractive, high-converting Facebook Marketplace post in Roman Urdu and English.
+        
+        Product Title: {title}
+        Wholesale Price: PKR {wholesale_price}
+        Product Details: {raw_details}
+        
+        Instructions:
+        - Write a short, clear, catchy title.
+        - Include bullet points highlighting key features (Material, Available Sizes, Colors, Gender).
+        - Clearly state: 'Cash on Delivery Available across Pakistan'.
+        - End with a WhatsApp/Messenger call to action for buyers to send an inbox message.
+        """
+        
+        formatted_desc = generate_with_fallback(prompt)
+        
+        # Append formatted row directly into Markaz Products Google Sheet
+        sheet.append_row([title, selling_price, formatted_desc, url, "Pending"])
+        print(f"SUCCESS: Added '{title}' (Selling Price: Rs. {selling_price}) directly to Google Sheet!")
+
+    except Exception as e:
+        print(f"Error processing URL {url}: {e}")
+
+if __name__ == "__main__":
+    for product_url in PRODUCT_URLS:
+        scrape_and_process(product_url)
