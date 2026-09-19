@@ -10,113 +10,129 @@ from bs4 import BeautifulSoup
 from PIL import Image
 from fpdf import FPDF
 import gspread
-import google.generativeai as genai
+from google import genai
 
 from google.oauth2.credentials import Credentials as UserCredentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# 1. Setup Gemini API
+# 1. Setup Gemini API using google-genai
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is missing from environment variables!")
 
-genai.configure(api_key=GEMINI_API_KEY)
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-def generate_ai_description(title, selling_price, raw_details):
+# Seller Information
+SELLER_NAME = "Muhammad Naveed Arshad"
+WHATSAPP_NUMBER = "03374633605"
+WHATSAPP_LINK = "https://wa.me/923374633605"
+
+def generate_multi_platform_copy(title, selling_price, raw_details):
+    """Generates structured copy for Facebook Marketplace, Instagram, TikTok, and FB Groups with custom contact info."""
     prompt = f"""
-You are a top affiliate marketer in Pakistan.
-Write an attractive, high-converting Facebook Marketplace post in Roman Urdu and English for this product.
+You are an expert e-commerce affiliate marketer in Pakistan.
+Generate distinct, high-converting social media posts for this product:
 
 Product Title: {title}
 Price: PKR {selling_price}
-Details: {raw_details}
+Raw Details/Measurements: {raw_details}
 
-CRITICAL INSTRUCTIONS:
-- Return ONLY the final Facebook Marketplace post copy.
-- DO NOT include greetings, instructions, metadata, or repeated prompts.
-- Use clear bullet points for features/sizes, mention 'Cash on Delivery Available across Pakistan', and end with a WhatsApp inbox Call to Action.
+SELLER CONTACT INFORMATION (MUST BE INCLUDED IN EVERY POST'S CALL TO ACTION):
+- Contact Name: {SELLER_NAME}
+- WhatsApp Number: {WHATSAPP_NUMBER}
+- Direct WhatsApp Link: {WHATSAPP_LINK}
+
+Return ONLY a valid JSON object with the following keys:
+1. "fb_marketplace": Concise listing copy emphasizing exact measurements, size details, PKR price, Cash on Delivery across Pakistan, and a Call to Action with seller name ({SELLER_NAME}), WhatsApp ({WHATSAPP_NUMBER}), and link ({WHATSAPP_LINK}).
+2. "instagram": Aesthetic Roman Urdu & English post with emojis, key feature bullet points, COD note, seller contact details ({SELLER_NAME}, {WHATSAPP_NUMBER}, {WHATSAPP_LINK}), and 10 trending Pakistani fashion hashtags.
+3. "tiktok": Short, catchy caption (under 120 words) with attention-grabbing hook, seller WhatsApp ({WHATSAPP_NUMBER} / {WHATSAPP_LINK}), and video overlay hashtags.
+4. "fb_group": Persuasive sales post for Facebook Buy & Sell groups with urgency, full size details, and direct order details via {SELLER_NAME} at {WHATSAPP_NUMBER} ({WHATSAPP_LINK}).
+
+CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    try:
-        available_models = [
-            m.name.replace("models/", "") for m in genai.list_models()
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        for model_name in available_models:
-            try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
-                if response and response.text:
-                    return response.text.strip()
-            except Exception as e:
-                print(f"Notice for model {model_name}: {e}")
-    except Exception as list_err:
-        print(f"Dynamic model lookup notice: {list_err}")
-
-    fallback_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
-    for model_name in fallback_models:
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+    for model_name in models_to_try:
         try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
+            response = ai_client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
             if response and response.text:
-                return response.text.strip()
+                clean_raw = response.text.strip()
+                # Strip markdown code blocks if present
+                clean_raw = re.sub(r'^```json\s*', '', clean_raw, flags=re.IGNORECASE)
+                clean_raw = re.sub(r'^```\s*', '', clean_raw)
+                clean_raw = re.sub(r'\s*```$', '', clean_raw)
+                
+                try:
+                    data = json.loads(clean_raw)
+                    if isinstance(data, dict) and "fb_marketplace" in data:
+                        return data
+                except Exception:
+                    pass
+
+                return {
+                    "fb_marketplace": clean_raw,
+                    "instagram": clean_raw,
+                    "tiktok": clean_raw[:300],
+                    "fb_group": clean_raw
+                }
         except Exception as e:
-            print(f"Fallback model error ({model_name}): {e}")
-            
+            print(f"Notice for model {model_name}: {e}")
+
     raise RuntimeError("All Gemini model endpoints failed.")
 
 # 2. Setup Google Credentials
 SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
-MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
+MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxF_kyu1ibkTO-AWhRCIJVmP"
 
 refresh_token = os.getenv("GDRIVE_REFRESH_TOKEN")
 client_id = os.getenv("GDRIVE_CLIENT_ID")
 client_secret = os.getenv("GDRIVE_CLIENT_SECRET")
 gcp_sa_key_str = os.getenv("GCP_SA_KEY")
 
-if not all([refresh_token, client_id, client_secret, gcp_sa_key_str]):
-    raise ValueError("Missing GDRIVE or GCP_SA_KEY secrets in GitHub Actions environment variables!")
+if not all([gcp_sa_key_str, refresh_token, client_id, client_secret]):
+    raise ValueError("Missing GCP_SA_KEY or GDRIVE secrets in environment variables!")
 
-# Authenticate Google Drive via User OAuth (Personal 15GB+ Storage Quota)
-user_creds = UserCredentials(
-    token=None,
-    refresh_token=refresh_token,
-    client_id=client_id,
-    client_secret=client_secret,
-    token_uri="https://oauth2.googleapis.com/token"
-)
-
-user_creds.refresh(Request())
-drive_service = build('drive', 'v3', credentials=user_creds)
-
-# Authenticate Google Sheets via Service Account
+# Google Sheets Client
 gc = gspread.service_account_from_dict(json.loads(gcp_sa_key_str))
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 
+# Google Drive Client via Personal User OAuth
+drive_service = None
+try:
+    user_creds = UserCredentials(
+        token=None,
+        refresh_token=refresh_token.strip(),
+        client_id=client_id.strip(),
+        client_secret=client_secret.strip(),
+        token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)"
+    )
+    user_creds.refresh(Request())
+    drive_service = build('drive', 'v3', credentials=user_creds)
+    print("Google Drive OAuth connection authenticated successfully!")
+except Exception as auth_err:
+    print(f"Google Drive OAuth warning: {auth_err}")
+
 def clean_text_for_pdf(text):
-    """Safely converts unicode text to ASCII to prevent FPDF font encoding crashes."""
     if not text:
         return ""
     return text.encode('ascii', 'ignore').decode('ascii')
 
 def sanitize_filename(name):
-    """Cleans product titles for safe file system naming."""
     clean = re.sub(r'[^\w\s-]', '', name).strip()
     return clean if clean else "Markaz_Product"
 
 def fetch_media_and_unzip(soup, page_url, temp_dir):
-    """
-    Finds the 'Download Media' ZIP button/link on the page, downloads the ZIP,
-    and unzips all product images. Falls back to page image tags if ZIP is unavailable.
-    """
+    """Finds and downloads the 'Download Media' ZIP archive, unzipping all product photos."""
     downloaded_img_paths = []
     zip_url = None
 
-    # Search for 'Download Media' button or direct ZIP download link
-    for a_tag in soup.find_all(["a", "button"]):
-        text = a_tag.get_text().strip().lower()
-        href = a_tag.get("href") or a_tag.get("data-href") or a_tag.get("data-url")
+    for elem in soup.find_all(["a", "button"]):
+        text = elem.get_text().strip().lower()
+        href = elem.get("href") or elem.get("data-href") or elem.get("data-url")
         if "download media" in text or "download" in text:
             if href:
                 zip_url = urllib.parse.urljoin(page_url, href)
@@ -124,27 +140,27 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
 
     if not zip_url:
         for a_tag in soup.find_all("a", href=True):
-            if ".zip" in a_tag["href"].lower() or "media" in a_tag["href"].lower():
+            if ".zip" in a_tag["href"].lower():
                 zip_url = urllib.parse.urljoin(page_url, a_tag["href"])
                 break
 
     if zip_url:
-        print(f"Found 'Download Media' link: {zip_url}")
+        print(f"Downloading Media ZIP from: {zip_url}")
         try:
-            zip_res = requests.get(
+            res = requests.get(
                 zip_url,
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
                 timeout=30
             )
-            if zip_res.status_code == 200 and len(zip_res.content) > 100:
-                zip_file_path = os.path.join(temp_dir, "media.zip")
-                with open(zip_file_path, "wb") as f:
-                    f.write(zip_res.content)
+            if res.status_code == 200 and len(res.content) > 100:
+                zip_path = os.path.join(temp_dir, "media.zip")
+                with open(zip_path, "wb") as f:
+                    f.write(res.content)
 
                 extracted_dir = os.path.join(temp_dir, "extracted")
                 os.makedirs(extracted_dir, exist_ok=True)
 
-                with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                     zip_ref.extractall(extracted_dir)
 
                 img_idx = 1
@@ -159,17 +175,16 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
                                     rgb_im.save(jpg_out_path, 'JPEG')
                                     downloaded_img_paths.append(jpg_out_path)
                                     img_idx += 1
-                            except Exception as convert_err:
-                                print(f"Notice converting unzipped image {file}: {convert_err}")
+                            except Exception as c_err:
+                                print(f"Notice converting image {file}: {c_err}")
 
                 if downloaded_img_paths:
-                    print(f"SUCCESS: Downloaded and unzipped {len(downloaded_img_paths)} product images from media ZIP!")
+                    print(f"SUCCESS: Extracted {len(downloaded_img_paths)} product photos from Download Media ZIP!")
                     return downloaded_img_paths
-        except Exception as zip_err:
-            print(f"ZIP media download notice ({zip_err}). Falling back to HTML photo scraping.")
+        except Exception as z_err:
+            print(f"ZIP media extraction notice ({z_err}). Falling back to HTML gallery scraping.")
 
-    # Fallback to page photo elements if media zip is missing
-    print("Fetching images directly from product gallery HTML...")
+    print("Scraping gallery photos directly from page HTML...")
     image_urls = []
     og_img = soup.find("meta", property="og:image")
     if og_img and og_img.get("content"):
@@ -198,38 +213,52 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
                     rgb_im.save(jpg_path, 'JPEG')
                 downloaded_img_paths.append(jpg_path)
         except Exception as e:
-            print(f"Notice fetching fallback image {img_url}: {e}")
+            print(f"Notice downloading image {img_url}: {e}")
 
     return downloaded_img_paths
 
-def create_product_pdf(title, selling_price, description, image_files, output_path):
-    """Generates a PDF containing title, price, listing copy, and photos."""
+def create_structured_pdf(title, selling_price, copy_dict, image_files, output_path):
+    """Generates a structured PDF with separate sections for each social media platform including seller details."""
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    # Product Title
+    # Header Title
     pdf.set_font("Helvetica", "B", 16)
     pdf.multi_cell(0, 8, clean_text_for_pdf(title), align="L")
-    pdf.ln(3)
+    pdf.ln(2)
 
-    # Price
-    pdf.set_font("Helvetica", "B", 13)
+    # Price & Seller Info Tag
+    pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(0, 128, 0)
-    pdf.cell(0, 8, f"Selling Price: PKR {selling_price}", ln=True)
+    pdf.cell(0, 7, f"Selling Price: PKR {selling_price}", ln=True)
+    pdf.set_text_color(0, 51, 102)
+    pdf.cell(0, 7, f"Seller: {SELLER_NAME} | WhatsApp: {WHATSAPP_NUMBER} ({WHATSAPP_LINK})", ln=True)
     pdf.ln(4)
 
-    # Description
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(30, 30, 30)
-    pdf.multi_cell(0, 5, clean_text_for_pdf(description))
-    pdf.ln(6)
+    sections = [
+        ("--- FACEBOOK MARKETPLACE COPY ---", copy_dict.get("fb_marketplace", "")),
+        ("--- INSTAGRAM POST COPY & HASHTAGS ---", copy_dict.get("instagram", "")),
+        ("--- TIKTOK VIDEO CAPTION ---", copy_dict.get("tiktok", "")),
+        ("--- FACEBOOK GROUPS & PAGE COPY ---", copy_dict.get("fb_group", ""))
+    ]
 
-    # Unzipped Images Gallery
+    for header, content in sections:
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(0, 51, 102)
+        pdf.cell(0, 7, header, ln=True)
+        pdf.ln(1)
+
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(30, 30, 30)
+        pdf.multi_cell(0, 5, clean_text_for_pdf(content))
+        pdf.ln(5)
+
+    # Unzipped Image Gallery
     if image_files:
         pdf.set_font("Helvetica", "B", 12)
         pdf.set_text_color(0, 0, 0)
-        pdf.cell(0, 8, f"Product Gallery Images ({len(image_files)} photos unzipped):", ln=True)
+        pdf.cell(0, 8, f"Product Gallery Photos ({len(image_files)} extracted):", ln=True)
         pdf.ln(3)
 
         for img_path in image_files:
@@ -242,7 +271,10 @@ def create_product_pdf(title, selling_price, description, image_files, output_pa
     pdf.output(output_path)
 
 def upload_pdf_to_drive(pdf_path, pdf_filename):
-    """Uploads PDF file directly to Google Drive."""
+    if not drive_service:
+        print("Skipping Google Drive upload: OAuth service unauthenticated.")
+        return "Pending"
+
     print(f"Uploading '{pdf_filename}.pdf' to Google Drive...")
     file_metadata = {
         'name': f"{pdf_filename}.pdf",
@@ -255,14 +287,13 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
         media_body=media,
         fields='id, webViewLink'
     ).execute()
-    
+
     folder_link = uploaded.get('webViewLink')
     print(f"SUCCESS: Uploaded PDF to Drive -> {folder_link}")
     return folder_link
 
-# Target product links
 PRODUCT_URLS = [
-    "https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844"
+    "[https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
 ]
 
 def scrape_and_process(url):
@@ -275,11 +306,9 @@ def scrape_and_process(url):
     res.raise_for_status()
     soup = BeautifulSoup(res.text, "html.parser")
 
-    # Extract Product Title
     title_tag = soup.find("h3") or soup.find("h1")
     title = title_tag.text.strip() if title_tag else "Multicolor Floral Lawn Kurta Pajama Set for Women"
 
-    # Extract Wholesale Price
     price_text = ""
     for tag in soup.find_all(string=re.compile(r"PKR", re.IGNORECASE)):
         price_text += " " + str(tag).strip()
@@ -294,36 +323,44 @@ def scrape_and_process(url):
         except ValueError:
             pass
 
-    selling_price = wholesale_price + 450  # Profit margin PKR 450
+    selling_price = wholesale_price + 450
 
-    # Extract Product Overview details
     overview_section = soup.find("div", {"id": "471"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
-    if not overview_section:
-        for elem in soup.find_all(["div", "section", "article"]):
-            if "product overview" in elem.get_text().lower():
-                overview_section = elem
-                break
-
     raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
 
-    # Download Media ZIP & Unzip all images into temporary directory
     temp_dir = tempfile.mkdtemp()
     unzipped_img_paths = fetch_media_and_unzip(soup, url, temp_dir)
 
-    print("Generating AI marketplace post copy...")
-    formatted_desc = generate_ai_description(title, selling_price, raw_details)
+    print("Generating structured multi-platform AI copy with custom contact details...")
+    copy_dict = generate_multi_platform_copy(title, selling_price, raw_details)
 
-    # Build local PDF file named on Product Title
     clean_file_title = sanitize_filename(title)
     local_pdf_path = os.path.join(temp_dir, f"{clean_file_title}.pdf")
-    create_product_pdf(title, selling_price, formatted_desc, unzipped_img_paths, local_pdf_path)
+    create_structured_pdf(title, selling_price, copy_dict, unzipped_img_paths, local_pdf_path)
 
-    # Upload PDF to Google Drive
     drive_pdf_link = upload_pdf_to_drive(local_pdf_path, clean_file_title)
 
-    # Log record entry into Google Sheet
-    sheet.insert_row([title, selling_price, formatted_desc, drive_pdf_link, "Pending"], index=2)
-    print(f"SUCCESS: Created PDF '{clean_file_title}.pdf' with unzipped photos and saved to Google Drive!")
+    # Format Google Sheet row with dedicated platform columns
+    ensure_headers = ["Title", "Price (PKR)", "FB Marketplace Copy", "Instagram Copy", "TikTok Caption", "FB Group Copy", "PDF Drive Link", "Status"]
+    try:
+        first_row = sheet.row_values(1)
+        if first_row != ensure_headers:
+            sheet.insert_row(ensure_headers, index=1)
+    except Exception:
+        pass
+
+    sheet.insert_row([
+        title,
+        selling_price,
+        copy_dict.get("fb_marketplace", ""),
+        copy_dict.get("instagram", ""),
+        copy_dict.get("tiktok", ""),
+        copy_dict.get("fb_group", ""),
+        drive_pdf_link,
+        "Pending"
+    ], index=2)
+
+    print(f"SUCCESS: Saved multi-platform PDF with contact info for '{title}' to Google Drive & Google Sheet!")
 
 if __name__ == "__main__":
     for product_url in PRODUCT_URLS:
