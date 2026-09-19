@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install google-genai requests beautifulsoup4 google-api-python-client google-auth fpdf2 pillow
+          pip install google-generativeai requests beautifulsoup4 google-api-python-client google-auth fpdf2 pillow
 
       - name: Run Markaz Grabber Script
         env:
