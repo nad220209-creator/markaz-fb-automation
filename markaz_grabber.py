@@ -23,7 +23,7 @@ if not GEMINI_API_KEY:
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Seller Contact Information
+# Seller Information
 SELLER_NAME = "Muhammad Naveed Arshad"
 WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
@@ -39,7 +39,7 @@ def clean_url(raw_url):
     return cleaned
 
 def generate_multi_platform_copy(title, selling_price, raw_details):
-    """Generates structured copy for Facebook Marketplace, Instagram, TikTok, and FB Groups with seller contact info."""
+    """Generates structured copy for Facebook Marketplace, Instagram, TikTok, and FB Groups with custom contact info."""
     prompt = f"""
 You are an expert e-commerce affiliate marketer in Pakistan.
 Generate distinct, high-converting social media posts for this product:
@@ -61,47 +61,12 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    # Dynamic Model Lookup to discover supported active endpoints
-    try:
-        available_models = [
-            m.name.replace("models/", "") for m in genai.list_models()
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        print(f"Active Gemini models on this API key: {available_models}")
-        for model_name in available_models:
-            try:
-                print(f"Trying active model: {model_name}")
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
-                if response and response.text:
-                    clean_raw = response.text.strip()
-                    clean_raw = re.sub(r'^```json\s*', '', clean_raw, flags=re.IGNORECASE)
-                    clean_raw = re.sub(r'^```\s*', '', clean_raw)
-                    clean_raw = re.sub(r'\s*```$', '', clean_raw)
-                    
-                    try:
-                        data = json.loads(clean_raw)
-                        if isinstance(data, dict) and "fb_marketplace" in data:
-                            return data
-                    except Exception:
-                        pass
-
-                    return {
-                        "fb_marketplace": clean_raw,
-                        "instagram": clean_raw,
-                        "tiktok": clean_raw[:300],
-                        "fb_group": clean_raw
-                    }
-            except Exception as m_err:
-                print(f"Notice for model {model_name}: {m_err}")
-    except Exception as list_err:
-        print(f"Dynamic model lookup notice: {list_err}")
-
-    # Fallback to current production models
-    models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash-latest"]
+    # Active Gemini Models targeted directly to prevent rate-limit loops
+    models_to_try = ["gemini-3.6-flash", "gemini-1.5-flash-latest", "gemini-3.1-pro-preview"]
+    
     for model_name in models_to_try:
         try:
-            print(f"Trying fallback model: {model_name}")
+            print(f"Generating AI copy with model: {model_name}...")
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             if response and response.text:
@@ -152,7 +117,7 @@ try:
         refresh_token=refresh_token.strip(),
         client_id=client_id.strip(),
         client_secret=client_secret.strip(),
-        token_uri="https://oauth2.googleapis.com/token"
+        token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)"
     )
     user_creds.refresh(Request())
     drive_service = build('drive', 'v3', credentials=user_creds)
@@ -170,7 +135,7 @@ def sanitize_filename(name):
     return clean if clean else "Markaz_Product"
 
 def fetch_media_and_unzip(soup, page_url, temp_dir):
-    """Finds and downloads the 'Download Media' ZIP archive, unzipping all product photos."""
+    """Scrapes images directly from Markaz web elements and unzips any media archives if present."""
     downloaded_img_paths = []
     zip_url = None
 
@@ -197,7 +162,6 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
                 timeout=30
             )
-            # Verify status code and ZIP magic header ('PK')
             if res.status_code == 200 and len(res.content) > 100 and res.content.startswith(b'PK'):
                 zip_path = os.path.join(temp_dir, "media.zip")
                 with open(zip_path, "wb") as f:
@@ -230,7 +194,7 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
         except Exception as z_err:
             print(f"ZIP media extraction notice ({z_err}). Falling back to HTML gallery scraping.")
 
-    print("Scraping gallery photos directly from page HTML...")
+    print("Scraping gallery photos directly from Markaz web page HTML...")
     image_urls = []
     og_img = soup.find("meta", property="og:image")
     if og_img and og_img.get("content"):
@@ -300,7 +264,7 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
         pdf.multi_cell(0, 5, clean_text_for_pdf(content))
         pdf.ln(5)
 
-    # Unzipped Image Gallery
+    # Image Gallery
     if image_files:
         pdf.set_font("Helvetica", "B", 12)
         pdf.set_text_color(0, 0, 0)
@@ -338,14 +302,14 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
     print(f"SUCCESS: Uploaded PDF to Drive -> {folder_link}")
     return folder_link
 
-# Target product links
+# Target product links on the Markaz website
 PRODUCT_URLS = [
-    "https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844"
+    "[https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
 ]
 
 def scrape_and_process(raw_url):
     url = clean_url(raw_url)
-    print(f"\n--- Scraping product from: {url} ---")
+    print(f"\n--- Scraping product from Markaz Web: {url} ---")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -373,13 +337,13 @@ def scrape_and_process(raw_url):
 
     selling_price = wholesale_price + 450
 
-    overview_section = soup.find("div", {"id": "471"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
+    overview_section = soup.find("div", {"id": "504"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
     raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
 
     temp_dir = tempfile.mkdtemp()
     unzipped_img_paths = fetch_media_and_unzip(soup, url, temp_dir)
 
-    print("Generating structured multi-platform AI copy with custom contact details...")
+    print("Generating multi-platform AI copy with custom contact details...")
     copy_dict = generate_multi_platform_copy(title, selling_price, raw_details)
 
     clean_file_title = sanitize_filename(title)
