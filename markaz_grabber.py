@@ -28,6 +28,13 @@ SELLER_NAME = "Muhammad Naveed Arshad"
 WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
 
+def clean_url(raw_url):
+    """Extracts a clean HTTP/HTTPS URL from any raw string or markdown link format."""
+    match = re.search(r'https?://[^\s\]\)\"]+', raw_url)
+    if match:
+        return match.group(0)
+    return raw_url.strip("[]()'\" ")
+
 def generate_multi_platform_copy(title, selling_price, raw_details):
     """Generates structured copy for Facebook Marketplace, Instagram, TikTok, and FB Groups with custom contact info."""
     prompt = f"""
@@ -82,7 +89,7 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
 # 2. Setup Google Credentials
 SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
-MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
+MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxF_kyu1ibkTO-AWhRCIJVmP"
 
 refresh_token = os.getenv("GDRIVE_REFRESH_TOKEN")
 client_id = os.getenv("GDRIVE_CLIENT_ID")
@@ -289,10 +296,11 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
     return folder_link
 
 PRODUCT_URLS = [
-    "[https://www.markaz.app/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
+    "[https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
 ]
 
-def scrape_and_process(url):
+def scrape_and_process(raw_url):
+    url = clean_url(raw_url)
     print(f"\n--- Scraping product from: {url} ---")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
