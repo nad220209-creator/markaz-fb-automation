@@ -8,19 +8,19 @@ import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 from fpdf import FPDF
-import google.generativeai as genai
+from google import genai
 
 from google.oauth2.credentials import Credentials as UserCredentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# 1. Setup Gemini API
+# 1. Setup Gemini API using the modern google-genai client
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is missing from environment variables!")
 
-genai.configure(api_key=GEMINI_API_KEY)
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Seller Information
 SELLER_NAME = "Muhammad Naveed Arshad"
@@ -58,12 +58,14 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    models_to_try = ["gemini-3.6-flash", "gemini-1.5-flash-latest", "gemini-2.5-flash"]
+    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
     for model_name in models_to_try:
         try:
             print(f"Generating AI copy with model: {model_name}...")
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
+            response = ai_client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
             if response and response.text:
                 clean_raw = response.text.strip()
                 clean_raw = re.sub(r'^```json\s*', '', clean_raw, flags=re.IGNORECASE)
@@ -88,7 +90,7 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
     raise RuntimeError("All Gemini model endpoints failed.")
 
-# 2. Setup Google Drive Credentials via OAuth Refresh Token
+# 2. Setup Google Drive Credentials via OAuth Refresh Token (No brackets or quotes in env values)
 MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
 refresh_token = os.getenv("GDRIVE_REFRESH_TOKEN")
@@ -98,15 +100,15 @@ client_secret = os.getenv("GDRIVE_CLIENT_SECRET")
 if not all([refresh_token, client_id, client_secret]):
     raise ValueError("Missing GDRIVE secrets in environment variables!")
 
+# Clean token variables to prevent invalid transport schema errors
 user_creds = UserCredentials(
     token=None,
-    refresh_token=refresh_token.strip(),
-    client_id=client_id.strip(),
-    client_secret=client_secret.strip(),
+    refresh_token=refresh_token.strip("[]'\" "),
+    client_id=client_id.strip("[]'\" "),
+    client_secret=client_secret.strip("[]'\" "),
     token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)"
 )
 
-# Force immediate token validation/refresh
 user_creds.refresh(Request())
 drive_service = build('drive', 'v3', credentials=user_creds)
 print("Google Drive OAuth connection authenticated successfully!")
@@ -315,3 +317,21 @@ def scrape_and_process(raw_url):
     selling_price = wholesale_price + 450
 
     overview_section = soup.find("div", {"id": "504"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
+    raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
+
+    temp_dir = tempfile.mkdtemp()
+    unzipped_img_paths = fetch_media_and_unzip(soup, url, temp_dir)
+
+    print("Generating multi-platform AI copy with custom contact details...")
+    copy_dict = generate_multi_platform_copy(title, selling_price, raw_details)
+
+    clean_file_title = sanitize_filename(title)
+    local_pdf_path = os.path.join(temp_dir, f"{clean_file_title}.pdf")
+    create_structured_pdf(title, selling_price, copy_dict, unzipped_img_paths, local_pdf_path)
+
+    drive_pdf_link = upload_pdf_to_drive(local_pdf_path, clean_file_title)
+    print(f"SUCCESS: Generated PDF for '{title}' and uploaded directly to Google Drive!")
+
+if __name__ == "__main__":
+    for product_url in PRODUCT_URLS:
+        scrape_and_process(product_url)
