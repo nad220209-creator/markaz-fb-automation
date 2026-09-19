@@ -26,10 +26,26 @@ SELLER_NAME = "Muhammad Naveed Arshad"
 WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
 
-# HARDCODED GOOGLE DRIVE OAUTH CREDENTIALS
+# HARDCODED OAUTH CREDENTIALS
 HARDCODED_CLIENT_ID = "295426809796-g7ij8hpd6c1bne47eitj0ilhbjqtfa5m.apps.googleusercontent.com"
 HARDCODED_CLIENT_SECRET = "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"
 HARDCODED_REFRESH_TOKEN = "1//04-lxAxN2RYljCgYIARAAGAQSNwF-L9Ir_SwrAvwFZoNn-FumsqBkX5JfeWoMXVbUlS6g0-JvybhUcfclRSpQp3v-HYIgFxb4fq8"
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+
+def clean_str(val):
+    """Aggressively strips all brackets, quotes, and markdown artifacts."""
+    if not val:
+        return ""
+    s = str(val).strip()
+    while s.startswith(('[', "'", '"', '(', '<')) or s.endswith((']', "'", '"', ')', '>')):
+        s = s[1:-1].strip()
+    return s
+
+# Proactively clean all credentials and URL to prevent any bracket/schema bugs
+CLIENT_ID = clean_str(HARDCODED_CLIENT_ID)
+CLIENT_SECRET = clean_str(HARDCODED_CLIENT_SECRET)
+REFRESH_TOKEN = clean_str(HARDCODED_REFRESH_TOKEN)
+URL = clean_str(TOKEN_URL)
 
 def clean_url(raw_url):
     match = re.search(r'https?://[^\s\]\)\"]+', raw_url)
@@ -92,16 +108,16 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
     raise RuntimeError("All Gemini model endpoints failed.")
 
-# 2. Direct OAuth Token Generation (Bypassing Library Bugs)
+# 2. Direct OAuth Token Generation
 MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
-print("Requesting fresh OAuth access token via direct HTTP POST...")
+print(f"Requesting fresh OAuth access token from: {URL}")
 token_res = requests.post(
-    "[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
+    URL,
     data={
-        "client_id": HARDCODED_CLIENT_ID,
-        "client_secret": HARDCODED_CLIENT_SECRET,
-        "refresh_token": HARDCODED_REFRESH_TOKEN,
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "refresh_token": REFRESH_TOKEN,
         "grant_type": "refresh_token"
     },
     timeout=30
