@@ -8,19 +8,19 @@ import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 from fpdf import FPDF
-from google import genai
+import google.generativeai as genai
 
 from google.oauth2.credentials import Credentials as UserCredentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# 1. Setup Gemini API using the modern google-genai client
+# 1. Setup Gemini API with stable google.generativeai package
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is missing from environment variables!")
 
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
 
 # Seller Information
 SELLER_NAME = "Muhammad Naveed Arshad"
@@ -58,14 +58,12 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
     for model_name in models_to_try:
         try:
             print(f"Generating AI copy with model: {model_name}...")
-            response = ai_client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
             if response and response.text:
                 clean_raw = response.text.strip()
                 clean_raw = re.sub(r'^```json\s*', '', clean_raw, flags=re.IGNORECASE)
@@ -90,7 +88,7 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
     raise RuntimeError("All Gemini model endpoints failed.")
 
-# 2. Setup Google Drive Credentials via OAuth Refresh Token (No brackets or quotes in env values)
+# 2. Setup Google Drive Credentials via OAuth Refresh Token
 MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
 refresh_token = os.getenv("GDRIVE_REFRESH_TOKEN")
@@ -100,7 +98,6 @@ client_secret = os.getenv("GDRIVE_CLIENT_SECRET")
 if not all([refresh_token, client_id, client_secret]):
     raise ValueError("Missing GDRIVE secrets in environment variables!")
 
-# Clean token variables to prevent invalid transport schema errors
 user_creds = UserCredentials(
     token=None,
     refresh_token=refresh_token.strip("[]'\" "),
