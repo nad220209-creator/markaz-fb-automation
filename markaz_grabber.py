@@ -23,7 +23,7 @@ if not GEMINI_API_KEY:
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Seller Information
+# Seller Contact Information
 SELLER_NAME = "Muhammad Naveed Arshad"
 WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
@@ -61,9 +61,47 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
+    # Dynamic Model Lookup to discover supported active endpoints
+    try:
+        available_models = [
+            m.name.replace("models/", "") for m in genai.list_models()
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        print(f"Active Gemini models on this API key: {available_models}")
+        for model_name in available_models:
+            try:
+                print(f"Trying active model: {model_name}")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                if response and response.text:
+                    clean_raw = response.text.strip()
+                    clean_raw = re.sub(r'^```json\s*', '', clean_raw, flags=re.IGNORECASE)
+                    clean_raw = re.sub(r'^```\s*', '', clean_raw)
+                    clean_raw = re.sub(r'\s*```$', '', clean_raw)
+                    
+                    try:
+                        data = json.loads(clean_raw)
+                        if isinstance(data, dict) and "fb_marketplace" in data:
+                            return data
+                    except Exception:
+                        pass
+
+                    return {
+                        "fb_marketplace": clean_raw,
+                        "instagram": clean_raw,
+                        "tiktok": clean_raw[:300],
+                        "fb_group": clean_raw
+                    }
+            except Exception as m_err:
+                print(f"Notice for model {model_name}: {m_err}")
+    except Exception as list_err:
+        print(f"Dynamic model lookup notice: {list_err}")
+
+    # Fallback to current production models
+    models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash-latest"]
     for model_name in models_to_try:
         try:
+            print(f"Trying fallback model: {model_name}")
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             if response and response.text:
@@ -114,7 +152,7 @@ try:
         refresh_token=refresh_token.strip(),
         client_id=client_id.strip(),
         client_secret=client_secret.strip(),
-        token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)"
+        token_uri="https://oauth2.googleapis.com/token"
     )
     user_creds.refresh(Request())
     drive_service = build('drive', 'v3', credentials=user_creds)
@@ -139,15 +177,16 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
     for elem in soup.find_all(["a", "button"]):
         text = elem.get_text().strip().lower()
         href = elem.get("href") or elem.get("data-href") or elem.get("data-url")
-        if "download media" in text or "download" in text:
-            if href:
+        if ("download media" in text or "download" in text) and href:
+            if "play.google.com" not in href:
                 zip_url = urllib.parse.urljoin(page_url, href)
                 break
 
     if not zip_url:
         for a_tag in soup.find_all("a", href=True):
-            if ".zip" in a_tag["href"].lower():
-                zip_url = urllib.parse.urljoin(page_url, a_tag["href"])
+            href = a_tag["href"]
+            if ".zip" in href.lower() and "play.google.com" not in href:
+                zip_url = urllib.parse.urljoin(page_url, href)
                 break
 
     if zip_url:
@@ -158,7 +197,8 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
                 timeout=30
             )
-            if res.status_code == 200 and len(res.content) > 100:
+            # Verify status code and ZIP magic header ('PK')
+            if res.status_code == 200 and len(res.content) > 100 and res.content.startswith(b'PK'):
                 zip_path = os.path.join(temp_dir, "media.zip")
                 with open(zip_path, "wb") as f:
                     f.write(res.content)
@@ -300,7 +340,7 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
 
 # Target product links
 PRODUCT_URLS = [
-    "[https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
+    "https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844"
 ]
 
 def scrape_and_process(raw_url):
