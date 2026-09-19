@@ -1,7 +1,6 @@
 import os
 import json
 import re
-import io
 import zipfile
 import tempfile
 import urllib.parse
@@ -10,19 +9,19 @@ from bs4 import BeautifulSoup
 from PIL import Image
 from fpdf import FPDF
 import gspread
-from google import genai
+import google.generativeai as genai
 
 from google.oauth2.credentials import Credentials as UserCredentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# 1. Setup Gemini API using google-genai
+# 1. Setup Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is missing from environment variables!")
 
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
 
 # Seller Information
 SELLER_NAME = "Muhammad Naveed Arshad"
@@ -52,16 +51,13 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
     for model_name in models_to_try:
         try:
-            response = ai_client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
             if response and response.text:
                 clean_raw = response.text.strip()
-                # Strip markdown code blocks if present
                 clean_raw = re.sub(r'^```json\s*', '', clean_raw, flags=re.IGNORECASE)
                 clean_raw = re.sub(r'^```\s*', '', clean_raw)
                 clean_raw = re.sub(r'\s*```$', '', clean_raw)
@@ -86,7 +82,7 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
 # 2. Setup Google Credentials
 SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
-MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxF_kyu1ibkTO-AWhRCIJVmP"
+MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
 refresh_token = os.getenv("GDRIVE_REFRESH_TOKEN")
 client_id = os.getenv("GDRIVE_CLIENT_ID")
@@ -293,7 +289,7 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
     return folder_link
 
 PRODUCT_URLS = [
-    "[https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
+    "[https://www.markaz.app/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
 ]
 
 def scrape_and_process(url):
@@ -340,7 +336,6 @@ def scrape_and_process(url):
 
     drive_pdf_link = upload_pdf_to_drive(local_pdf_path, clean_file_title)
 
-    # Format Google Sheet row with dedicated platform columns
     ensure_headers = ["Title", "Price (PKR)", "FB Marketplace Copy", "Instagram Copy", "TikTok Caption", "FB Group Copy", "PDF Drive Link", "Status"]
     try:
         first_row = sheet.row_values(1)
