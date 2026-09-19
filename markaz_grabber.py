@@ -142,9 +142,9 @@ def scrape_and_process(url):
         
         formatted_desc = generate_with_fallback(prompt)
         
-        # Append formatted row directly into Markaz Products Google Sheet
-        sheet.append_row([title, selling_price, formatted_desc, url, "Pending"])
-        print(f"SUCCESS: Added '{title}' (Selling Price: Rs. {selling_price}) directly to Google Sheet!")
+        # Insert product directly at Row 2 (right below header)
+        sheet.insert_row([title, selling_price, formatted_desc, url, "Pending"], index=2)
+        print(f"SUCCESS: Added '{title}' (Selling Price: Rs. {selling_price}) directly to Row 2 in Google Sheet!")
 
     except Exception as e:
         print(f"Error processing URL {url}: {e}")
