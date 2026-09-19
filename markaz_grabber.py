@@ -10,31 +10,26 @@ from PIL import Image
 from fpdf import FPDF
 import google.generativeai as genai
 
-from google.oauth2.credentials import Credentials as UserCredentials
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from google.oauth2.credentials import Credentials
 
 # 1. Setup Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is missing from environment variables!")
 
-genai.configure(api_key=str(os.getenv("GEMINI_API_KEY")).strip("[]'\" "))
+genai.configure(api_key=str(GEMINI_API_KEY).strip("[]'\" "))
 
 # Seller Information
 SELLER_NAME = "Muhammad Naveed Arshad"
 WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
 
-def force_clean(val):
-    """Permanently strips all brackets, quotes, lists, and whitespace from secret strings."""
-    if not val:
-        return ""
-    # Convert to string and remove all leading/trailing brackets, quotes, and whitespace
-    s = str(val).strip()
-    s = s.replace("[", "").replace("]", "").replace("'", "").replace('"', "").strip()
-    return s
+# HARDCODED GOOGLE DRIVE OAUTH CREDENTIALS
+HARDCODED_CLIENT_ID = "295426809796-g7ij8hpd6c1bne47eitj0ilhbjqtfa5m.apps.googleusercontent.com"
+HARDCODED_CLIENT_SECRET = "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"
+HARDCODED_REFRESH_TOKEN = "1//04-lxAxN2RYljCgYIARAAGAQSNwF-L9Ir_SwrAvwFZoNn-FumsqBkX5JfeWoMXVbUlS6g0-JvybhUcfclRSpQp3v-HYIgFxb4fq8"
 
 def clean_url(raw_url):
     match = re.search(r'https?://[^\s\]\)\"]+', raw_url)
@@ -97,29 +92,30 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
     raise RuntimeError("All Gemini model endpoints failed.")
 
-# 2. Setup Google Drive Credentials with absolute force-cleaning
+# 2. Direct OAuth Token Generation (Bypassing Library Bugs)
 MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
-refresh_token = force_clean(os.getenv("GDRIVE_REFRESH_TOKEN"))
-client_id = force_clean(os.getenv("GDRIVE_CLIENT_ID"))
-client_secret = force_clean(os.getenv("GDRIVE_CLIENT_SECRET"))
-
-if not all([refresh_token, client_id, client_secret]):
-    raise ValueError("Missing GDRIVE secrets in environment variables!")
-
-print(f"DEBUG Cleaned: Client ID len: {len(client_id)}, Refresh token len: {len(refresh_token)}")
-
-user_creds = UserCredentials(
-    token=None,
-    refresh_token=refresh_token,
-    client_id=client_id,
-    client_secret=client_secret,
-    token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)"
+print("Requesting fresh OAuth access token via direct HTTP POST...")
+token_res = requests.post(
+    "[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
+    data={
+        "client_id": HARDCODED_CLIENT_ID,
+        "client_secret": HARDCODED_CLIENT_SECRET,
+        "refresh_token": HARDCODED_REFRESH_TOKEN,
+        "grant_type": "refresh_token"
+    },
+    timeout=30
 )
 
-user_creds.refresh(Request())
-drive_service = build('drive', 'v3', credentials=user_creds)
-print("Google Drive OAuth connection authenticated successfully!")
+if token_res.status_code != 200:
+    raise RuntimeError(f"Failed to refresh OAuth token: {token_res.text}")
+
+token_data = token_res.json()
+access_token = token_data.get("access_token")
+
+creds = Credentials(token=access_token)
+drive_service = build('drive', 'v3', credentials=creds)
+print("Google Drive direct OAuth authentication successful!")
 
 def clean_text_for_pdf(text):
     if not text:
