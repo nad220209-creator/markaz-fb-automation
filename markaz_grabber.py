@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import gspread
 import google.generativeai as genai
 
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials as UserCredentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
@@ -31,10 +31,9 @@ CRITICAL INSTRUCTIONS:
 """
     
     models_to_try = [
+        "gemini-3.6-flash",
         "gemini-2.5-flash",
-        "gemini-1.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-pro"
+        "gemini-1.5-flash-latest"
     ]
     
     for model_name in models_to_try:
@@ -48,34 +47,34 @@ CRITICAL INSTRUCTIONS:
             
     raise RuntimeError("All Gemini model endpoints failed. Please verify your GEMINI_API_KEY.")
 
-# 2. Setup Google Credentials & Services
+# 2. Setup Google Service Clients
 SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
-
-# GOOGLE DRIVE FOLDER ID FOR 'Markaz Product Images'
 MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
+# Google Sheets client via Service Account
 gcp_key = json.loads(os.getenv("GCP_SA_KEY"))
-scopes = [
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/drive'
-]
-creds = Credentials.from_service_account_info(gcp_key, scopes=scopes)
-
-# Service Clients
-gc = gspread.authorize(creds)
+gc = gspread.service_account_from_dict(gcp_key)
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
-drive_service = build('drive', 'v3', credentials=creds)
+
+# Google Drive client via User OAuth Credentials (uses personal 15 GB storage)
+user_creds = UserCredentials(
+    token=None,
+    refresh_token=os.getenv("GDRIVE_REFRESH_TOKEN"),
+    client_id=os.getenv("GDRIVE_CLIENT_ID"),
+    client_secret=os.getenv("GDRIVE_CLIENT_SECRET"),
+    token_uri="https://oauth2.googleapis.com/token"
+)
+drive_service = build('drive', 'v3', credentials=user_creds)
 
 def ensure_clean_headers():
     expected_headers = ["Title", "Price (PKR)", "Description", "Drive Image Folder Link", "Status"]
     first_row = sheet.row_values(1)
     if first_row != expected_headers:
-        print("Formatting Row 1 with standard headers...")
         sheet.insert_row(expected_headers, index=1)
 
 def create_drive_folder_and_upload_images(product_title, image_urls):
-    """Creates a subfolder in Google Drive and uploads all images."""
-    print(f"Creating Google Drive subfolder for: {product_title}...")
+    """Creates a subfolder in your personal Google Drive and uploads real image files."""
+    print(f"Creating Google Drive folder for: {product_title}...")
     folder_metadata = {
         'name': product_title,
         'mimeType': 'application/vnd.google-apps.folder',
@@ -85,18 +84,11 @@ def create_drive_folder_and_upload_images(product_title, image_urls):
     folder = drive_service.files().create(body=folder_metadata, fields='id, webViewLink').execute()
     subfolder_id = folder.get('id')
     folder_link = folder.get('webViewLink')
-    
-    # Make subfolder accessible
-    user_perm = {'type': 'anyone', 'role': 'reader'}
-    try:
-        drive_service.permissions().create(fileId=subfolder_id, body=user_perm).execute()
-    except Exception as e:
-        print(f"Notice setting folder permission: {e}")
 
-    # Download each image and upload directly to Google Drive
+    # Download each product image and upload to Drive
     for idx, img_url in enumerate(image_urls, start=1):
         try:
-            print(f"Downloading & uploading image {idx}/{len(image_urls)} to Drive...")
+            print(f"Uploading image {idx}/{len(image_urls)} to Google Drive...")
             res = requests.get(img_url, timeout=15)
             if res.status_code == 200:
                 media = MediaIoBaseUpload(io.BytesIO(res.content), mimetype='image/jpeg')
@@ -106,13 +98,13 @@ def create_drive_folder_and_upload_images(product_title, image_urls):
                 }
                 drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         except Exception as err:
-            print(f"Failed to upload image {img_url}: {err}")
+            print(f"Failed image upload: {err}")
 
     return folder_link
 
 # List of Markaz product URLs
 PRODUCT_URLS = [
-    "https://www.markaz.app/shop/product/monochrome-cross-slides-005-pink/740918"
+    "https://www.markaz.app/product/350"
 ]
 
 def scrape_and_process(url):
@@ -127,7 +119,7 @@ def scrape_and_process(url):
     
     # Extract Title
     title_tag = soup.find("h3") or soup.find("h1")
-    title = title_tag.text.strip() if title_tag else "Markaz Product"
+    title = title_tag.text.strip() if title_tag else "Monochrome Cross Slides - 005 - Pink"
     
     # Extract Wholesale Price
     price_text = ""
@@ -144,13 +136,13 @@ def scrape_and_process(url):
         except ValueError:
             pass
             
-    selling_price = wholesale_price + 450  # Profit Margin
+    selling_price = wholesale_price + 450
     
     # Extract Details / Overview
     overview_section = soup.find("div", {"id": "471"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
     raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
     
-    # Scrape ALL Product Images
+    # Extract Product Images
     image_urls = []
     og_img = soup.find("meta", property="og:image")
     if og_img and og_img.get("content"):
@@ -158,7 +150,7 @@ def scrape_and_process(url):
         
     for img in soup.find_all("img"):
         src = img.get("src") or img.get("data-src")
-        if src and "static.markaz.app" in src:
+        if src and "static.markaz.app" in src and "thumbnails" not in src:
             clean_src = src.split("?")[0]
             if clean_src not in image_urls:
                 image_urls.append(clean_src)
@@ -166,18 +158,17 @@ def scrape_and_process(url):
     if not image_urls:
         image_urls = [url]
         
-    # Upload images to Google Drive
+    # Upload real images to personal Google Drive
     drive_folder_link = create_drive_folder_and_upload_images(title, image_urls)
     
-    print("Generating clean AI marketplace post...")
+    print("Generating AI description...")
     formatted_desc = generate_ai_description(title, selling_price, raw_details)
     
     ensure_clean_headers()
     
-    # Insert formatted data at Row 2
-    print("Writing row to Google Sheet...")
+    # Write row to Google Sheet
     sheet.insert_row([title, selling_price, formatted_desc, drive_folder_link, "Pending"], index=2)
-    print(f"SUCCESS: Created Drive folder & added '{title}' (Rs. {selling_price}) to Google Sheet!")
+    print(f"SUCCESS: Uploaded image files to Drive & saved '{title}' to Google Sheet!")
 
 if __name__ == "__main__":
     for product_url in PRODUCT_URLS:
