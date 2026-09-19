@@ -376,3 +376,28 @@ def scrape_and_process(raw_url):
         try:
             extracted = int(digits[0].replace(",", ""))
             if extracted > 100:
+                wholesale_price = extracted
+        except ValueError:
+            pass
+
+    selling_price = wholesale_price + 450
+
+    overview_section = soup.find("div", {"id": "504"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
+    raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
+
+    temp_dir = tempfile.mkdtemp()
+    unzipped_img_paths = fetch_media_and_unzip(soup, url, temp_dir)
+
+    print("Generating multi-platform AI copy with custom contact details...")
+    copy_dict = generate_multi_platform_copy(title, selling_price, raw_details)
+
+    clean_file_title = sanitize_filename(title)
+    local_pdf_path = os.path.join(temp_dir, f"{clean_file_title}.pdf")
+    create_structured_pdf(title, selling_price, copy_dict, unzipped_img_paths, local_pdf_path)
+
+    drive_pdf_link = upload_pdf_to_drive(local_pdf_path, clean_file_title)
+    print(f"SUCCESS: Generated PDF for '{title}' and uploaded directly to Google Drive!")
+
+if __name__ == "__main__":
+    for product_url in PRODUCT_URLS:
+        scrape_and_process(product_url)
