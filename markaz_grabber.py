@@ -8,33 +8,33 @@ import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 from fpdf import FPDF
-from google import genai
+import google.generativeai as genai
 
 from google.oauth2.credentials import Credentials as UserCredentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# 1. Setup Gemini API using the modern google-genai client
+# 1. Setup Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is missing from environment variables!")
 
-ai_client = genai.Client(api_key=GEMINI_API_KEY.strip("[]'\" "))
+genai.configure(api_key=str(os.getenv("GEMINI_API_KEY")).strip("[]'\" "))
 
 # Seller Information
 SELLER_NAME = "Muhammad Naveed Arshad"
 WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
 
-def clean_secret(val):
-    """Deep cleans accidental brackets, quotes, and whitespace from GitHub Secrets."""
+def force_clean(val):
+    """Aggressively strips brackets, quotes, and whitespace from secret strings."""
     if not val:
         return ""
-    cleaned = str(val).strip()
-    while cleaned.startswith(('[', "'", '"', '(')) or cleaned.endswith((']', "'", '"', ')')):
-        cleaned = cleaned[1:-1].strip()
-    return cleaned
+    # Remove any occurrence of leading/trailing brackets, quotes, or whitespace
+    s = str(val).strip()
+    s = re.sub(r"^[\s\[\]\(\)'\"]+|[\s\[\]\(\)'\"]+$", "", s)
+    return s.strip()
 
 def clean_url(raw_url):
     match = re.search(r'https?://[^\s\]\)\"]+', raw_url)
@@ -67,14 +67,12 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    models_to_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"]
     for model_name in models_to_try:
         try:
             print(f"Generating AI copy with model: {model_name}...")
-            response = ai_client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
             if response and response.text:
                 clean_raw = response.text.strip()
                 clean_raw = re.sub(r'^```json\s*', '', clean_raw, flags=re.IGNORECASE)
@@ -99,15 +97,17 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
     raise RuntimeError("All Gemini model endpoints failed.")
 
-# 2. Setup Google Drive Credentials with automated secret sanitization
+# 2. Setup Google Drive Credentials with strict cleansing
 MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
-refresh_token = clean_secret(os.getenv("GDRIVE_REFRESH_TOKEN"))
-client_id = clean_secret(os.getenv("GDRIVE_CLIENT_ID"))
-client_secret = clean_secret(os.getenv("GDRIVE_CLIENT_SECRET"))
+refresh_token = force_clean(os.getenv("GDRIVE_REFRESH_TOKEN"))
+client_id = force_clean(os.getenv("GDRIVE_CLIENT_ID"))
+client_secret = force_clean(os.getenv("GDRIVE_CLIENT_SECRET"))
 
 if not all([refresh_token, client_id, client_secret]):
     raise ValueError("Missing GDRIVE secrets in environment variables!")
+
+print(f"DEBUG: Client ID length: {len(client_id)}, Refresh token length: {len(refresh_token)}")
 
 user_creds = UserCredentials(
     token=None,
