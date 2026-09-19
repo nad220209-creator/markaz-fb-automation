@@ -28,13 +28,13 @@ WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
 
 def force_clean(val):
-    """Aggressively strips brackets, quotes, and whitespace from secret strings."""
+    """Permanently strips all brackets, quotes, lists, and whitespace from secret strings."""
     if not val:
         return ""
-    # Remove any occurrence of leading/trailing brackets, quotes, or whitespace
+    # Convert to string and remove all leading/trailing brackets, quotes, and whitespace
     s = str(val).strip()
-    s = re.sub(r"^[\s\[\]\(\)'\"]+|[\s\[\]\(\)'\"]+$", "", s)
-    return s.strip()
+    s = s.replace("[", "").replace("]", "").replace("'", "").replace('"', "").strip()
+    return s
 
 def clean_url(raw_url):
     match = re.search(r'https?://[^\s\]\)\"]+', raw_url)
@@ -97,7 +97,7 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
     raise RuntimeError("All Gemini model endpoints failed.")
 
-# 2. Setup Google Drive Credentials with strict cleansing
+# 2. Setup Google Drive Credentials with absolute force-cleaning
 MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
 refresh_token = force_clean(os.getenv("GDRIVE_REFRESH_TOKEN"))
@@ -107,7 +107,7 @@ client_secret = force_clean(os.getenv("GDRIVE_CLIENT_SECRET"))
 if not all([refresh_token, client_id, client_secret]):
     raise ValueError("Missing GDRIVE secrets in environment variables!")
 
-print(f"DEBUG: Client ID length: {len(client_id)}, Refresh token length: {len(refresh_token)}")
+print(f"DEBUG Cleaned: Client ID len: {len(client_id)}, Refresh token len: {len(refresh_token)}")
 
 user_creds = UserCredentials(
     token=None,
