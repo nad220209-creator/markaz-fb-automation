@@ -8,10 +8,10 @@ import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 from fpdf import FPDF
-import gspread
 import google.generativeai as genai
 
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials as UserCredentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
@@ -88,26 +88,28 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
     raise RuntimeError("All Gemini model endpoints failed.")
 
-# 2. Setup Google Credentials (Permanent Service Account)
-SPREADSHEET_ID = "1WPstH3ad5hVdKx_g-hTbBVqo4Qtl09nBLFspn0GqJV8"
-MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxF_kyu1ibkTO-AWhRCIJVmP"
+# 2. Setup Google Drive Credentials via OAuth Refresh Token
+MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
-gcp_sa_key_str = os.getenv("GCP_SA_KEY")
-if not gcp_sa_key_str:
-    raise ValueError("Missing GCP_SA_KEY in environment variables!")
+refresh_token = os.getenv("GDRIVE_REFRESH_TOKEN")
+client_id = os.getenv("GDRIVE_CLIENT_ID")
+client_secret = os.getenv("GDRIVE_CLIENT_SECRET")
 
-sa_info = json.loads(gcp_sa_key_str)
+if not all([refresh_token, client_id, client_secret]):
+    raise ValueError("Missing GDRIVE secrets in environment variables!")
 
-# Google Sheets Client via Service Account
-gc = gspread.service_account_from_dict(sa_info)
-sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
+user_creds = UserCredentials(
+    token=None,
+    refresh_token=refresh_token.strip(),
+    client_id=client_id.strip(),
+    client_secret=client_secret.strip(),
+    token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)"
+)
 
-# Google Drive Client via Service Account Credentials
-drive_scopes = ['[https://www.googleapis.com/auth/drive](https://www.googleapis.com/auth/drive)']
-sa_creds = Credentials.from_service_account_info(sa_info, scopes=drive_scopes)
-drive_service = build('drive', 'v3', credentials=sa_creds)
-
-print("Permanently authenticated Google Drive & Sheets via Service Account!")
+# Force immediate token validation/refresh
+user_creds.refresh(Request())
+drive_service = build('drive', 'v3', credentials=user_creds)
+print("Google Drive OAuth connection authenticated successfully!")
 
 def clean_text_for_pdf(text):
     if not text:
@@ -260,13 +262,13 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
     pdf.output(output_path)
 
 def upload_pdf_to_drive(pdf_path, pdf_filename):
-    print(f"Uploading '{pdf_filename}.pdf' to Google Drive via Service Account...")
+    print(f"Uploading '{pdf_filename}.pdf' to Google Drive...")
     file_metadata = {
         'name': f"{pdf_filename}.pdf",
         'mimeType': 'application/pdf',
         'parents': [MAIN_DRIVE_FOLDER_ID]
     }
-    media = MediaFileUpload(pdf_path, mimetype='application/pdf')
+    media = MediaFileUpload(pdf_path, mimetype='application/pdf', resumable=True)
     uploaded = drive_service.files().create(
         body=file_metadata,
         media_body=media,
@@ -313,41 +315,3 @@ def scrape_and_process(raw_url):
     selling_price = wholesale_price + 450
 
     overview_section = soup.find("div", {"id": "504"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
-    raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
-
-    temp_dir = tempfile.mkdtemp()
-    unzipped_img_paths = fetch_media_and_unzip(soup, url, temp_dir)
-
-    print("Generating multi-platform AI copy with custom contact details...")
-    copy_dict = generate_multi_platform_copy(title, selling_price, raw_details)
-
-    clean_file_title = sanitize_filename(title)
-    local_pdf_path = os.path.join(temp_dir, f"{clean_file_title}.pdf")
-    create_structured_pdf(title, selling_price, copy_dict, unzipped_img_paths, local_pdf_path)
-
-    drive_pdf_link = upload_pdf_to_drive(local_pdf_path, clean_file_title)
-
-    ensure_headers = ["Title", "Price (PKR)", "FB Marketplace Copy", "Instagram Copy", "TikTok Caption", "FB Group Copy", "PDF Drive Link", "Status"]
-    try:
-        first_row = sheet.row_values(1)
-        if first_row != ensure_headers:
-            sheet.insert_row(ensure_headers, index=1)
-    except Exception:
-        pass
-
-    sheet.insert_row([
-        title,
-        selling_price,
-        copy_dict.get("fb_marketplace", ""),
-        copy_dict.get("instagram", ""),
-        copy_dict.get("tiktok", ""),
-        copy_dict.get("fb_group", ""),
-        drive_pdf_link,
-        "Pending"
-    ], index=2)
-
-    print(f"SUCCESS: Saved multi-platform PDF for '{title}' to Google Drive & Google Sheet!")
-
-if __name__ == "__main__":
-    for product_url in PRODUCT_URLS:
-        scrape_and_process(product_url)
