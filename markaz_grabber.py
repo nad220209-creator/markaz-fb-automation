@@ -15,17 +15,23 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# 1. Setup Gemini API with stable google.generativeai package
+# 1. Setup Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is missing from environment variables!")
 
-genai.configure(api_key=GEMINI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY.strip("[]'\" "))
 
 # Seller Information
 SELLER_NAME = "Muhammad Naveed Arshad"
 WHATSAPP_NUMBER = "03374633605"
 WHATSAPP_LINK = "https://wa.me/923374633605"
+
+def clean_secret(val):
+    """Strips accidental brackets, quotes, and whitespace from GitHub Secrets."""
+    if not val:
+        return ""
+    return str(val).strip("[]()'\" ")
 
 def clean_url(raw_url):
     match = re.search(r'https?://[^\s\]\)\"]+', raw_url)
@@ -88,21 +94,21 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
 
     raise RuntimeError("All Gemini model endpoints failed.")
 
-# 2. Setup Google Drive Credentials via OAuth Refresh Token
+# 2. Setup Google Drive Credentials with automated secret sanitization
 MAIN_DRIVE_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
-refresh_token = os.getenv("GDRIVE_REFRESH_TOKEN")
-client_id = os.getenv("GDRIVE_CLIENT_ID")
-client_secret = os.getenv("GDRIVE_CLIENT_SECRET")
+refresh_token = clean_secret(os.getenv("GDRIVE_REFRESH_TOKEN"))
+client_id = clean_secret(os.getenv("GDRIVE_CLIENT_ID"))
+client_secret = clean_secret(os.getenv("GDRIVE_CLIENT_SECRET"))
 
 if not all([refresh_token, client_id, client_secret]):
     raise ValueError("Missing GDRIVE secrets in environment variables!")
 
 user_creds = UserCredentials(
     token=None,
-    refresh_token=refresh_token.strip("[]'\" "),
-    client_id=client_id.strip("[]'\" "),
-    client_secret=client_secret.strip("[]'\" "),
+    refresh_token=refresh_token,
+    client_id=client_id,
+    client_secret=client_secret,
     token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)"
 )
 
