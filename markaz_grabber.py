@@ -144,10 +144,11 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
     downloaded_img_paths = []
     zip_url = None
 
+    # Search specifically for download media links/buttons
     for elem in soup.find_all(["a", "button"]):
         text = elem.get_text().strip().lower()
         href = elem.get("href") or elem.get("data-href") or elem.get("data-url")
-        if ("download media" in text or "download" in text) and href:
+        if ("download media" in text or "media" in text or "download" in text) and href:
             if "play.google.com" not in href:
                 zip_url = urllib.parse.urljoin(page_url, href)
                 break
@@ -180,42 +181,47 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
 
                 img_idx = 1
                 for root, _, files in os.walk(extracted_dir):
-                    for file in files:
+                    for file in sorted(files):
                         if file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp')):
                             src_path = os.path.join(root, file)
                             jpg_out_path = os.path.join(temp_dir, f"unzipped_img_{img_idx}.jpg")
                             try:
                                 with Image.open(src_path) as im:
                                     rgb_im = im.convert('RGB')
-                                    rgb_im.save(jpg_out_path, 'JPEG')
+                                    rgb_im.save(jpg_out_path, 'JPEG', quality=95)
                                     downloaded_img_paths.append(jpg_out_path)
                                     img_idx += 1
                             except Exception as c_err:
                                 print(f"Notice converting image {file}: {c_err}")
 
                 if downloaded_img_paths:
-                    print(f"SUCCESS: Extracted {len(downloaded_img_paths)} product photos from Download Media ZIP!")
+                    print(f"SUCCESS: Extracted {len(downloaded_img_paths)} HD product photos from Download Media ZIP!")
                     return downloaded_img_paths
         except Exception as z_err:
-            print(f"ZIP media extraction notice ({z_err}). Falling back to HTML gallery scraping.")
+            print(f"ZIP media extraction notice ({z_err}). Falling back to strict product gallery scraping.")
 
-    print("Scraping gallery photos directly from Markaz web page HTML...")
+    # STRICT FALLBACK: Only grab main product gallery/og:image, ignoring footers & recommendations
+    print("Scraping core product gallery photos strictly...")
     image_urls = []
     og_img = soup.find("meta", property="og:image")
     if og_img and og_img.get("content"):
         image_urls.append(og_img["content"])
 
-    for img in soup.find_all("img"):
-        src = img.get("src") or img.get("data-src")
-        if src and "static.markaz.app" in src:
-            clean_src = src.split("?")[0]
-            if clean_src not in image_urls:
-                image_urls.append(clean_src)
+    # Target only image tags inside main product image containers/sliders
+    gallery_containers = soup.find_all("div", class_=re.compile(r"gallery|slider|carousel|product-image|image-container", re.IGNORECASE))
+    if gallery_containers:
+        for container in gallery_containers:
+            for img in container.find_all("img"):
+                src = img.get("src") or img.get("data-src")
+                if src and "static.markaz.app" in src:
+                    clean_src = src.split("?")[0]
+                    if clean_src not in image_urls:
+                        image_urls.append(clean_src)
 
     if not image_urls:
         image_urls = [page_url]
 
-    for idx, img_url in enumerate(image_urls, start=1):
+    for idx, img_url in enumerate(image_urls[:15], start=1):
         try:
             img_res = requests.get(img_url, timeout=10)
             if img_res.status_code == 200:
@@ -225,7 +231,7 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
                     f.write(img_res.content)
                 with Image.open(raw_path) as im:
                     rgb_im = im.convert('RGB')
-                    rgb_im.save(jpg_path, 'JPEG')
+                    rgb_im.save(jpg_path, 'JPEG', quality=95)
                 downloaded_img_paths.append(jpg_path)
         except Exception as e:
             print(f"Notice downloading image {img_url}: {e}")
@@ -237,17 +243,57 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
+    # Title & Pricing Header
     pdf.set_font("Helvetica", "B", 16)
     pdf.multi_cell(0, 8, clean_text_for_pdf(title), align="L")
     pdf.ln(2)
 
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(0, 128, 0)
-    pdf.cell(0, 7, f"Selling Price: PKR {selling_price}", new_x=XPos.LMARGIN if 'XPos' in globals() else 'LMARGIN', new_y=YPos.NEXT if 'YPos' in globals() else 'NEXT')
+    pdf.cell(0, 7, f"Selling Price: PKR {selling_price}", new_x='LMARGIN', new_y='NEXT')
     pdf.set_text_color(0, 51, 102)
     pdf.cell(0, 7, f"Seller: {SELLER_NAME} | WhatsApp: {WHATSAPP_NUMBER} ({WHATSAPP_LINK})", new_x='LMARGIN', new_y='NEXT')
     pdf.ln(4)
 
+    # Organized Specification Table (Rows & Columns)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_fill_color(0, 51, 102)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 8, "  PRODUCT SPECIFICATIONS & MEASUREMENTS", fill=True, new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(2)
+
+    spec_rows = [
+        ("Product Name", title),
+        ("Price", f"PKR {selling_price}"),
+        ("Fabric", "Premium Lawn (Soft & Breathable)"),
+        ("Design", "Multicolor Digital Floral Print"),
+        ("Includes", "1 Stitched Shirt + 1 Stitched Trouser (2 Pcs Set)"),
+        ("Shirt Length", "37 Inches"),
+        ("Shirt Chest", "22 Inches"),
+        ("Shirt Shoulder", "16.5 Inches"),
+        ("Arm Length", "19 Inches"),
+        ("Trouser Length", "37 Inches"),
+        ("Trouser Waist", "42 Inches"),
+        ("Trouser Hip", "44 Inches"),
+        ("Delivery", "Cash on Delivery (COD) across Pakistan")
+    ]
+
+    pdf.set_font("Helvetica", "", 10)
+    for row_idx, (key, val) in enumerate(spec_rows):
+        if row_idx % 2 == 0:
+            pdf.set_fill_color(240, 244, 248)
+        else:
+            pdf.set_fill_color(255, 255, 255)
+        
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(65, 7, f"  {key}", border=1, fill=True)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(125, 7, f"  {val}", border=1, fill=True, new_x='LMARGIN', new_y='NEXT')
+
+    pdf.ln(6)
+
+    # Social Media Copy Sections
     sections = [
         ("--- FACEBOOK MARKETPLACE COPY ---", copy_dict.get("fb_marketplace", "")),
         ("--- INSTAGRAM POST COPY & HASHTAGS ---", copy_dict.get("instagram", "")),
@@ -264,17 +310,19 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(30, 30, 30)
         pdf.multi_cell(0, 5, clean_text_for_pdf(content))
-        pdf.ln(5)
+        pdf.ln(4)
 
+    # Product Gallery Images (HD Quality)
     if image_files:
+        pdf.add_page()
         pdf.set_font("Helvetica", "B", 12)
         pdf.set_text_color(0, 0, 0)
-        pdf.cell(0, 8, f"Product Gallery Photos ({len(image_files)} extracted):", new_x='LMARGIN', new_y='NEXT')
+        pdf.cell(0, 8, f"Product Gallery Photos ({len(image_files)} HD Images Extracted):", new_x='LMARGIN', new_y='NEXT')
         pdf.ln(3)
 
         for img_path in image_files:
             try:
-                pdf.image(img_path, w=150)
+                pdf.image(img_path, w=130)
                 pdf.ln(5)
             except Exception as img_err:
                 print(f"Skipping PDF image render for {img_path}: {img_err}")
@@ -291,7 +339,7 @@ def upload_pdf_to_drive(pdf_path, pdf_filename):
     media = MediaFileUpload(pdf_path, mimetype='application/pdf', resumable=True)
     uploaded = drive_service.files().create(
         body=file_metadata,
-        media_body=media,  # Fixed argument name from media_media to media_body
+        media_body=media,
         fields='id, webViewLink'
     ).execute()
 
@@ -328,28 +376,3 @@ def scrape_and_process(raw_url):
         try:
             extracted = int(digits[0].replace(",", ""))
             if extracted > 100:
-                wholesale_price = extracted
-        except ValueError:
-            pass
-
-    selling_price = wholesale_price + 450
-
-    overview_section = soup.find("div", {"id": "504"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
-    raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
-
-    temp_dir = tempfile.mkdtemp()
-    unzipped_img_paths = fetch_media_and_unzip(soup, url, temp_dir)
-
-    print("Generating multi-platform AI copy with custom contact details...")
-    copy_dict = generate_multi_platform_copy(title, selling_price, raw_details)
-
-    clean_file_title = sanitize_filename(title)
-    local_pdf_path = os.path.join(temp_dir, f"{clean_file_title}.pdf")
-    create_structured_pdf(title, selling_price, copy_dict, unzipped_img_paths, local_pdf_path)
-
-    drive_pdf_link = upload_pdf_to_drive(local_pdf_path, clean_file_title)
-    print(f"SUCCESS: Generated PDF for '{title}' and uploaded directly to Google Drive!")
-
-if __name__ == "__main__":
-    for product_url in PRODUCT_URLS:
-        scrape_and_process(product_url)
