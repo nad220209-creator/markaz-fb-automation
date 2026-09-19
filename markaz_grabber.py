@@ -144,7 +144,6 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
     downloaded_img_paths = []
     zip_url = None
 
-    # Search specifically for download media links/buttons on Markaz
     for elem in soup.find_all(["a", "button", "div", "span"]):
         text = elem.get_text().strip().lower()
         href = elem.get("href") or elem.get("data-href") or elem.get("data-url")
@@ -188,7 +187,6 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
                             try:
                                 with Image.open(src_path) as im:
                                     rgb_im = im.convert('RGB')
-                                    # Save at 100% full original quality without downscaling or compression
                                     rgb_im.save(jpg_out_path, 'JPEG', quality=100, subsampling=0)
                                     downloaded_img_paths.append(jpg_out_path)
                                     img_idx += 1
@@ -201,7 +199,6 @@ def fetch_media_and_unzip(soup, page_url, temp_dir):
         except Exception as z_err:
             print(f"ZIP media extraction notice ({z_err}). Falling back to strict product gallery scraping.")
 
-    # STRICT FALLBACK: Only grab main product gallery images (no recommendations/footers)
     print("Scraping core product gallery photos strictly...")
     image_urls = []
     og_img = soup.find("meta", property="og:image")
@@ -308,4 +305,97 @@ def create_structured_pdf(title, selling_price, copy_dict, image_files, output_p
         pdf.cell(0, 7, header, new_x='LMARGIN', new_y='NEXT')
         pdf.ln(1)
 
-        pdf.set_font("
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(30, 30, 30)
+        pdf.multi_cell(0, 5, clean_text_for_pdf(content))
+        pdf.ln(4)
+
+    # Uncompressed HD Product Gallery Images
+    if image_files:
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 8, f"HD Product Gallery Photos ({len(image_files)} Uncompressed Images):", new_x='LMARGIN', new_y='NEXT')
+        pdf.ln(3)
+
+        for img_path in image_files:
+            try:
+                pdf.image(img_path, w=140)
+                pdf.ln(6)
+            except Exception as img_err:
+                print(f"Skipping PDF image render for {img_path}: {img_err}")
+
+    pdf.output(output_path)
+
+def upload_pdf_to_drive(pdf_path, pdf_filename):
+    print(f"Uploading '{pdf_filename}.pdf' to Google Drive...")
+    file_metadata = {
+        'name': f"{pdf_filename}.pdf",
+        'mimeType': 'application/pdf',
+        'parents': [MAIN_DRIVE_FOLDER_ID]
+    }
+    media = MediaFileUpload(pdf_path, mimetype='application/pdf', resumable=True)
+    uploaded = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id, webViewLink'
+    ).execute()
+
+    folder_link = uploaded.get('webViewLink')
+    print(f"SUCCESS: Uploaded PDF to Drive -> {folder_link}")
+    return folder_link
+
+# Target product links
+PRODUCT_URLS = [
+    "[https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844](https://www.markaz.app/shop/product/multicolor-floral-lawn-kurta-pajama-set-for-women/715844)"
+]
+
+def scrape_and_process(raw_url):
+    url = clean_url(raw_url)
+    print(f"\n--- Scraping product from Markaz Web: {url} ---")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    res = requests.get(url, headers=headers, timeout=15)
+    res.raise_for_status()
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    title_tag = soup.find("h3") or soup.find("h1")
+    title = title_tag.text.strip() if title_tag else "Multicolor Floral Lawn Kurta Pajama Set for Women"
+
+    price_text = ""
+    for tag in soup.find_all(string=re.compile(r"PKR", re.IGNORECASE)):
+        price_text += " " + str(tag).strip()
+
+    digits = re.findall(r"\d[\d,]*", price_text)
+    wholesale_price = 1930
+    if digits:
+        try:
+            extracted = int(digits[0].replace(",", ""))
+            if extracted > 100:
+                wholesale_price = extracted
+        except ValueError:
+            pass
+
+    selling_price = wholesale_price + 450
+
+    overview_section = soup.find("div", {"id": "504"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
+    raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
+
+    temp_dir = tempfile.mkdtemp()
+    unzipped_img_paths = fetch_media_and_unzip(soup, url, temp_dir)
+
+    print("Generating multi-platform AI copy with custom contact details...")
+    copy_dict = generate_multi_platform_copy(title, selling_price, raw_details)
+
+    clean_file_title = sanitize_filename(title)
+    local_pdf_path = os.path.join(temp_dir, f"{clean_file_title}.pdf")
+    create_structured_pdf(title, selling_price, copy_dict, unzipped_img_paths, local_pdf_path)
+
+    drive_pdf_link = upload_pdf_to_drive(local_pdf_path, clean_file_title)
+    print(f"SUCCESS: Generated PDF for '{title}' and uploaded directly to Google Drive!")
+
+if __name__ == "__main__":
+    for product_url in PRODUCT_URLS:
+        scrape_and_process(product_url)
