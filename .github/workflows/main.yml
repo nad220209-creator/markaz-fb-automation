@@ -1,4 +1,4 @@
-name: Markaz Product Grabber
+name: Markaz Product Pipeline
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  run-grabber:
+  run-pipeline:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -20,12 +20,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install google-generativeai requests beautifulsoup4 google-api-python-client google-auth fpdf2 pillow
+          pip install requests beautifulsoup4 google-api-python-client google-auth google-generativeai fpdf2 pillow
 
-      - name: Run Markaz Grabber Script
+      - name: Run Main Orchestrator
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
-          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
-          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
-        run: python markaz_grabber.py
+        run: python main.py
