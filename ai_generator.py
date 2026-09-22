@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 import google.generativeai as genai
 from config import SELLER_NAME, WHATSAPP_NUMBER, WHATSAPP_LINK
 
@@ -32,9 +33,18 @@ Return ONLY a valid JSON object with the following keys:
 
 CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, or self-check questions. Output pure JSON only.
 """
-    models_to_try = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-1.5-flash"]
+    # Prioritize latest models with robust fallbacks for 404 and 429 rate limits
+    models_to_try = [
+        "gemini-3.6-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+    ]
+    
     for model_name in models_to_try:
         try:
+            print(f"Trying Gemini model: {model_name}...")
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             if response and response.text:
@@ -45,6 +55,7 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
                 try:
                     data = json.loads(clean_raw)
                     if isinstance(data, dict) and "fb_marketplace" in data:
+                        print(f"Successfully generated copy using {model_name}!")
                         return data
                 except Exception:
                     pass
@@ -55,5 +66,18 @@ CRITICAL: DO NOT include any introductory text, markdown headers outside JSON, o
                     "fb_group": clean_raw
                 }
         except Exception as e:
-            print(f"Notice for model {model_name}: {e}")
-    raise RuntimeError("All Gemini model endpoints failed.")
+            print(f"Model {model_name} failed: {e}")
+            if "429" in str(e) or "Quota" in str(e):
+                print("Rate limit hit, waiting 5 seconds before trying next model...")
+                time.sleep(5)
+            continue
+
+    # Graceful fallback if all models hit rate limits or unavailability
+    print("Warning: All Gemini models failed or hit rate limits. Using standard marketing copy fallback.")
+    fallback_text = f"🔥 {title} 🔥\nPrice: PKR {selling_price}\nCash on Delivery across Pakistan!\nOrder now via WhatsApp: {WHATSAPP_NUMBER} ({WHATSAPP_LINK})\nSeller: {SELLER_NAME}"
+    return {
+        "fb_marketplace": fallback_text,
+        "instagram": fallback_text,
+        "tiktok": fallback_text[:120],
+        "fb_group": fallback_text
+    }
