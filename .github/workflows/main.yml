@@ -1,9 +1,9 @@
-name: Markaz Product Pipeline
+name: Markaz Multi-Category Pipeline
 
 on:
   schedule:
-    - cron: '0 3 * * *'
-  workflow_dispatch:
+    - cron: '0 3,7,11,15,19 * * *'  # Runs automatically 5 times a day (1 category per run)
+  workflow_dispatch:                 # Enables the manual "Run workflow" button (all 5 categories instantly)
 
 jobs:
   run-pipeline:
@@ -22,7 +22,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 google-api-python-client google-auth google-generativeai fpdf2 pillow
 
-      - name: Run Main Orchestrator
+      - name: Run Orchestrator
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
         run: python main.py
