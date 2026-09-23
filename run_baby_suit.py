@@ -2,13 +2,14 @@ import os
 import tempfile
 import re
 import traceback
+from search_helper import get_next_trending_product
 from scraper import download_and_extract_media
 from ai_generator import generate_copy
 from pdf_builder import build_pdf
 from drive_uploader import upload_pdf
 
 CATEGORY_NAME = "Baby Suit"
-PRODUCT_URL = "https://www.markaz.app/shop/product/baby-suit-set-soft-blended-3-pcs-newborn/96520"
+SEARCH_QUERY = "Newborn Baby Suit Cotton Soft Set"
 
 def sanitize_filename(name):
     clean = re.sub(r'[^\w\s-]', '', name).strip()
@@ -18,8 +19,12 @@ def main():
     print(f"=== Processing Category: {CATEGORY_NAME} ===")
     temp_dir = tempfile.mkdtemp()
     try:
-        title, selling_price, raw_details, image_paths = download_and_extract_media(PRODUCT_URL, temp_dir)
-        print(f"Title: {title} | Price: PKR {selling_price} | Images: {len(image_paths)}")
+        product_url = get_next_trending_product(SEARCH_QUERY)
+        if not product_url:
+            raise ValueError(f"No products found for query: {SEARCH_QUERY}")
+
+        title, selling_price, raw_details, image_paths = download_and_extract_media(product_url, temp_dir)
+        print(f"Title: {title} | Selling Price: PKR {selling_price} | Images: {len(image_paths)}")
 
         copy_dict = generate_copy(title, selling_price, raw_details)
         clean_file_title = sanitize_filename(f"{CATEGORY_NAME}_{title}")
