@@ -64,8 +64,8 @@ def download_and_extract_media(raw_page_url, temp_dir):
         except ValueError:
             pass
 
-    # Reseller Profit Margin: Add PKR 600 to 900+ markup over wholesale price to ensure reseller profit
-    markup = 750 if wholesale_price > 2000 else 500
+    # Balanced Reseller Profit Margin: Adds a fair PKR 400 markup over wholesale price
+    markup = 400
     selling_price = wholesale_price + markup
     logger.info(f"Wholesale: PKR {wholesale_price} | Reseller Markup: PKR {markup} | Selling Price: PKR {selling_price}")
 
