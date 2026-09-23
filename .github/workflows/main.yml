@@ -1,9 +1,16 @@
-name: Markaz Lawn Suit Pipeline
+name: Markaz Smart Automated Pipeline
 
 on:
   schedule:
-    - cron: '0 3 * * *'
+    # Runs 6 times a day from 5:00 UTC to 10:00 UTC (10:00 AM to 3:00 PM Pakistan Time)
+    - cron: '0 5,6,7,8,9,10 * * *'
   workflow_dispatch:
+    inputs:
+      manual_run:
+        description: 'Run all categories manually'
+        required: false
+        default: 'true'
+        type: boolean
 
 jobs:
   run-pipeline:
@@ -22,13 +29,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 google-api-python-client google-auth google-generativeai fpdf2 pillow
+          pip install requests beautifulsoup4 google-api-python-client google-auth google-generativeai fpdf2 pillow pytz
 
-      - name: Run Lawn Suit Script
+      - name: Run Pipeline Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-        run: python run_lawn_suit.py
+          # If triggered manually, RUN_ALL is true. If automatic schedule, RUN_ALL is false (1 category per run).
+          RUN_ALL: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+        run: python main.py
 
       - name: Commit and Push Processed History
         run: |
@@ -37,5 +46,5 @@ jobs:
           git fetch origin main
           git pull origin main --rebase || true
           git add processed_history.json
-          git commit -m "Update processed product history cache for lawn suit [skip ci]" || echo "No changes to commit"
+          git commit -m "Update processed product history cache [skip ci]" || echo "No changes to commit"
           git push origin HEAD:main
