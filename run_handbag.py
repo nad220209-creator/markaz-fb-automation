@@ -8,8 +8,8 @@ from ai_generator import generate_copy
 from pdf_builder import build_pdf
 from drive_uploader import upload_pdf
 
-CATEGORY_NAME = "Women Handbag"
-SEARCH_QUERY = "Womens Handbag Shoulder Bag Set"
+CATEGORY_NAME = "Girl Skincare Beauty Kit Serum"
+SEARCH_QUERY = "Vitamin C Face Serum Skincare Kit"
 
 def sanitize_filename(name):
     clean = re.sub(r'[^\w\s-]', '', name).strip()
