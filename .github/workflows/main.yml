@@ -1,15 +1,15 @@
-name: Markaz Shoes Test Pipeline
+name: Markaz Shoes Pipeline (Men & Women)
 
 on:
   schedule:
-    - cron: '0 3 * * *'
-  workflow_dispatch:
+    - cron: '0 3 * * *'  # Runs daily
+  workflow_dispatch:     # Enables the manual "Run workflow" button
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # Required to commit history updates back to the repository
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -24,11 +24,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 google-api-python-client google-auth google-generativeai fpdf2 pillow
 
-      - name: Run Shoes Test
+      - name: Run Men's Shoes Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-        run: python run_shoes.py
+        run: python run_mens_shoes.py
+
+      - name: Run Women's Shoes Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+        run: python run_womens_shoes.py
 
       - name: Commit and Push Processed History
         run: |
@@ -37,5 +43,5 @@ jobs:
           git fetch origin main
           git pull origin main --rebase || true
           git add processed_history.json
-          git commit -m "Update processed product history cache [skip ci]" || echo "No changes to commit"
+          git commit -m "Update processed product history cache for men and women shoes [skip ci]" || echo "No changes to commit"
           git push origin HEAD:main
