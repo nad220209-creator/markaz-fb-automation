@@ -1,4 +1,4 @@
-name: Markaz Skincare Test Pipeline
+name: Markaz Shoes Test Pipeline
 
 on:
   schedule:
@@ -24,11 +24,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 google-api-python-client google-auth google-generativeai fpdf2 pillow
 
-      - name: Run Skincare Test
+      - name: Run Shoes Test
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-        run: python run_skincare.py
+        run: python run_shoes.py
 
       - name: Commit and Push Processed History
         run: |
