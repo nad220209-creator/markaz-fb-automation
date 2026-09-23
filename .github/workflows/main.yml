@@ -1,19 +1,21 @@
-name: Markaz Multi-Category Pipeline
+name: Markaz Single Test Pipeline
 
 on:
   schedule:
-    - cron: '0 3,7,11,15,19 * * *'  # Runs automatically 5 times a day (1 category per run)
-  workflow_dispatch:                 # Enables the manual "Run workflow" button (all 5 categories instantly)
+    - cron: '0 3 * * *'  # Runs daily
+  workflow_dispatch:     # Enables the manual "Run workflow" button
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to commit history updates back to the repository
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: python/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -22,8 +24,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 google-api-python-client google-auth google-generativeai fpdf2 pillow
 
-      - name: Run Orchestrator
+      - name: Run Single Category Test
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-        run: python main.py
+        run: python run_single_test.py
+
+      - name: Commit Processed History
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update processed product history cache [skip ci]"
+          file_pattern: processed_history.json
