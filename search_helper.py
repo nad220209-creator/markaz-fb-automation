@@ -8,8 +8,8 @@ from history_manager import load_history, add_to_history
 
 def get_next_trending_product(category_query):
     """
-    Scouts live Markaz search results, filters out already processed URLs using memory,
-    and uses Gemini AI to select the highest-demand product for Lahore, Islamabad, Rawalpindi, and Faisalabad.
+    Searches Markaz live, filters out already processed items via memory, 
+    and applies a strict relevance check to ensure the product matches the category.
     """
     encoded_query = requests.utils.quote(category_query)
     search_url = f"https://www.markaz.app/shop/search?q={encoded_query}"
@@ -38,41 +38,55 @@ def get_next_trending_product(category_query):
     if not candidates:
         return None
 
-    # Filter out already processed products using history memory
+    # Load history memory
     processed_urls = load_history()
-    fresh_candidates = [c for c in candidates if c["url"] not in processed_urls]
     
+    # Filter out already processed products
+    fresh_candidates = [c for c in candidates if c["url"] not in processed_urls]
     if not fresh_candidates:
-        print("Notice: All current search results have been processed already! Resetting history cache...")
+        print("Notice: All current search results processed. Resetting history cache...")
         fresh_candidates = candidates
 
-    # Use Gemini AI with metropolitan Pakistan context (Lahore, Islamabad, Rawalpindi, Faisalabad)
-    api_key = os.getenv("GEMINI_API_KEY")
-    selected_product = fresh_candidates[0]
+    # STRICT RELEVANCE FILTER: Ensure product title actually matches category keywords
+    query_keywords = [kw.lower() for kw in category_query.split() if len(kw) > 3]
+    relevant_candidates = []
+    
+    for c in fresh_candidates:
+        title_lower = c["title"].lower()
+        # Check if at least one primary keyword is present in the product title
+        if any(kw in title_lower for kw in query_keywords):
+            relevant_candidates.append(c)
 
-    if api_key and len(fresh_candidates) > 1:
+    # Fallback to fresh candidates if strict filter is too narrow
+    pool = relevant_candidates if relevant_candidates else fresh_candidates
+
+    # Use Gemini AI to pick the best high-demand product from the relevant pool
+    api_key = os.getenv("GEMINI_API_KEY")
+    selected_product = pool[0]
+
+    if api_key and len(pool) > 1:
         try:
             genai.configure(api_key=str(api_key).strip("[]'\" "))
-            candidate_list_text = [f"{i}. {item['title']}" for i, item in enumerate(fresh_candidates[:15])]
+            candidate_list_text = [f"{i}. {item['title']}" for i, item in enumerate(pool[:15])]
             
             prompt = f"""
 You are an expert e-commerce trend analyst for metropolitan consumer demand in major Pakistani cities (Lahore, Islamabad, Rawalpindi, Faisalabad).
-Category: {category_query}
-Here are available fresh product candidates from Markaz search results:
+Target Category / Search: {category_query}
+Here are strictly relevant product candidates from Markaz:
 {json.dumps(candidate_list_text, indent=2)}
 
-Analyze what young, fashionable buyers in Lahore, Islamabad, Rawalpindi, and Faisalabad are currently demanding most on social media. Select the ONE product that has the highest commercial demand and trending appeal.
+Select the ONE product that is most accurate to the target category and in highest commercial demand.
 Return ONLY the integer index (e.g., 0, 1, 2) of your choice, nothing else.
 """
             model = genai.GenerativeModel("gemini-2.5-flash")
             response = model.generate_content(prompt)
             match_idx = int(re.search(r'\d+', response.text).group())
-            if 0 <= match_idx < len(fresh_candidates):
-                selected_product = fresh_candidates[match_idx]
+            if 0 <= match_idx < len(pool):
+                selected_product = pool[match_idx]
         except Exception as ai_err:
-            print(f"AI trend selection notice: {ai_err}")
+            print(f"AI selection notice: {ai_err}")
 
-    # Save to memory history
+    # Save to history memory so it's never repeated
     add_to_history(selected_product["url"])
-    print(f"Selected High-Demand Trend Product -> Title: '{selected_product['title']}' | URL: {selected_product['url']}")
+    print(f"Selected Verified Relevant Product -> Title: '{selected_product['title']}' | URL: {selected_product['url']}")
     return selected_product["url"]
