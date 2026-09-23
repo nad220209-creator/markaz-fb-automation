@@ -19,7 +19,6 @@ def main():
     print(f"=== Processing Category: {CATEGORY_NAME} ===")
     temp_dir = tempfile.mkdtemp()
     try:
-        # Dynamically scout next un-repeated trending product
         product_url = get_next_trending_product(SEARCH_QUERY)
         if not product_url:
             raise ValueError(f"No products found for query: {SEARCH_QUERY}")
