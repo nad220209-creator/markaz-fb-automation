@@ -2,8 +2,12 @@ import os
 import json
 import google.generativeai as genai
 
-# Prioritized model list (tries newest preferred models first, then falls back seamlessly)
+# Prioritized model list: Newest Gemini 3 frontier models first, falling back gracefully
 PREFERRED_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.1-pro",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gemini-1.5-flash",
