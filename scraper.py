@@ -21,49 +21,24 @@ def clean_url(raw_url):
         cleaned = "https://" + cleaned.lstrip("/")
     return cleaned
 
-def find_in_stock_alternative(soup, current_url):
-    """Uses Gemini AI to pick the best in-stock alternative from Markaz 'Similar products' if item is out of stock."""
-    text_content = soup.get_text()
-    if "out of stock" not in text_content.lower():
-        return current_url # Product is live and in stock!
+def extract_correct_title(soup):
+    """Intelligently extracts the true product title, ignoring reviews and UI headers."""
+    # 1. Check official OpenGraph meta title first (Most reliable on Markaz)
+    og_title = soup.find("meta", property="og:title")
+    if og_title and og_title.get("content"):
+        raw_title = og_title["content"].split("–")[0].split("-")[0].strip()
+        if raw_title and len(raw_title) > 3:
+            return raw_title
 
-    logger.warning("Product is OUT OF STOCK. Scanning for in-stock similar alternatives...")
-    alternatives = []
-    
-    # Extract similar products listed on the page
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "/product/" in href:
-            full_url = "https://www.markaz.app" + href if href.startswith("/") else href
-            title = a.get_text().strip()
-            if len(title) > 5 and full_url != current_url:
-                alternatives.append({"title": title, "url": full_url})
+    # 2. Fallback to scanning headings while filtering out garbage headers
+    ignored_headers = ["ratings and reviews", "customer reviews", "similar products", "you may also like", "cart", "checkout"]
+    for tag in soup.find_all(["h1", "h2", "h3"]):
+        text = tag.get_text().strip()
+        if text and not any(bad in text.lower() for bad in ignored_headers):
+            if len(text) > 5:
+                return text
 
-    if not alternatives:
-        return current_url
-
-    # Use Gemini AI to pick the highest demand alternative
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        try:
-            genai.configure(api_key=str(api_key).strip("[]'\" "))
-            candidate_titles = [f"{i}. {alt['title']}" for i, alt in enumerate(alternatives[:15])]
-            prompt = f"""
-            The primary product is out of stock. From this list of in-stock alternative products on Markaz, pick the ONE that is currently in highest demand for trendy youth in Pakistan:
-            {candidate_titles}
-            Return ONLY the integer index of your choice, nothing else.
-            """
-            model = genai.GenerativeModel("gemini-2.5-flash")
-            response = model.generate_content(prompt)
-            match_idx = int(re.search(r'\d+', response.text).group())
-            if 0 <= match_idx < len(alternatives):
-                selected = alternatives[match_idx]
-                logger.info(f"Auto-switched to in-stock alternative: '{selected['title']}' | URL: {selected['url']}")
-                return selected['url']
-        except Exception as e:
-            logger.error(f"AI alternative selection failed: {e}")
-
-    return alternatives[0]['url'] if alternatives else current_url
+    return "Markaz Product"
 
 def download_and_extract_media(raw_page_url, temp_dir):
     page_url = clean_url(raw_page_url)
@@ -76,15 +51,11 @@ def download_and_extract_media(raw_page_url, temp_dir):
     res.raise_for_status()
     soup = BeautifulSoup(res.text, "html.parser")
 
-    # Check if out of stock and auto-switch to a winning in-stock alternative
-    page_url = find_in_stock_alternative(soup, page_url)
-    if page_url != clean_url(raw_page_url):
-        res = requests.get(page_url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, "html.parser")
+    # Extract clean, verified product title (skipping reviews headers)
+    title = extract_correct_title(soup)
+    logger.info(f"Successfully extracted product title: {title}")
 
-    title_tag = soup.find("h3") or soup.find("h1")
-    title = title_tag.text.strip() if title_tag else "Markaz Product"
-
+    # Extract pricing
     price_text = ""
     for tag in soup.find_all(string=re.compile(r"PKR", re.IGNORECASE)):
         price_text += " " + str(tag).strip()
