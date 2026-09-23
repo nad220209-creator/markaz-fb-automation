@@ -4,7 +4,6 @@ import json
 import re
 import requests
 from bs4 import BeautifulSoup
-import google.generativeai as genai
 from scraper import download_and_extract_media
 from ai_generator import generate_copy
 from pdf_builder import build_pdf
@@ -31,15 +30,16 @@ def save_history(history_list):
         print(f"Error saving history: {e}")
 
 def get_single_product():
-    """Searches Markaz live, filters out history, and picks the most relevant handbag."""
+    """Searches Markaz live using the correct search endpoint and filters out history."""
     encoded_query = requests.utils.quote(SEARCH_QUERY)
-    search_url = f"https://www.markaz.app/shop/search?q={encoded_query}"
+    # Correct Markaz search endpoint
+    search_url = f"https://www.markaz.app/shop?search={encoded_query}"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    print(f"Searching Markaz for: '{SEARCH_QUERY}'...")
+    print(f"Searching Markaz live for: '{SEARCH_QUERY}' -> {search_url}...")
     candidates = []
     
     try:
@@ -49,10 +49,10 @@ def get_single_product():
             for a in soup.find_all("a", href=True):
                 href = a["href"]
                 if "/product/" in href:
-                    full_url = "https://www.markaz.app" + href if href.startswith("/") else href
+                    full_url = ("https://www.markaz.app" + href if href.startswith("/") else href).split("?")[0]
                     title = a.get_text().strip()
-                    # Strict keyword relevance check
-                    if len(title) > 5 and any(kw in title.lower() for kw in ["bag", "handbag", "purse", "shoulder"]):
+                    # Strict relevance check for handbags
+                    if len(title) > 5 and any(kw in title.lower() for kw in ["bag", "handbag", "purse", "shoulder", "satchel"]):
                         if {"title": title, "url": full_url} not in candidates:
                             candidates.append({"title": title, "url": full_url})
     except Exception as e:
@@ -65,14 +65,15 @@ def get_single_product():
     fresh_candidates = [c for c in candidates if c["url"] not in processed_urls]
     
     if not fresh_candidates:
-        print("Resetting history cache...")
+        print("Notice: All current search results have been processed. Resetting history cache...")
+        processed_urls = []
         fresh_candidates = candidates
 
     selected = fresh_candidates[0]
     processed_urls.append(selected["url"])
     save_history(processed_urls)
 
-    print(f"Selected Product -> Title: '{selected['title']}' | URL: {selected['url']}")
+    print(f"Selected Unique Product -> Title: '{selected['title']}' | URL: {selected['url']}")
     return selected["url"]
 
 def sanitize_filename(name):
@@ -84,7 +85,7 @@ def main():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # 1. Fetch live product URL
+        # 1. Fetch next unique live product URL
         product_url = get_single_product()
 
         # 2. Scrape data, apply reseller markup, and download uncompressed HD photos
