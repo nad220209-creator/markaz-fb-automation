@@ -52,11 +52,12 @@ def get_single_product():
                     title = a.get_text().strip()
                     title_lower = title.lower()
                     
-                    # ZERO-TOLERANCE ADULT FILTER: Must be baby, MUST NOT be men/women/fabrics
-                    has_baby = any(kw in title_lower for kw in ["baby", "newborn", "infant", "kids", "romper"])
-                    has_adult_or_fabric = any(kw in title_lower for kw in ["men", "mens", "women", "womens", "fabric", "boski", "gents", "lawn", "kurta"])
+                    # STRICT CLOTHING & APPAREL FILTER (Blocks toys, tablets, and electronics completely)
+                    has_baby_target = any(kw in title_lower for kw in ["baby", "newborn", "infant", "kids", "new born", "toddler"])
+                    has_clothing_type = any(kw in title_lower for kw in ["suit", "romper", "set", "dress", "kurta", "bodysuit", "frock", "shirt", "pant", "cotton", "winter", "summer", "pajama"])
+                    has_forbidden_item = any(kw in title_lower for kw in ["tablet", "lcd", "writing", "toy", "educational", "game", "charger", "watch", "earbuds", "mobile", "cover", "car", "doll", "block", "puzzle"])
                     
-                    if len(title) > 3 and has_baby and not has_adult_or_fabric:
+                    if len(title) > 3 and has_baby_target and has_clothing_type and not has_forbidden_item:
                         if {"title": title, "url": full_url} not in candidates:
                             candidates.append({"title": title, "url": full_url})
     except Exception as e:
@@ -69,14 +70,14 @@ def get_single_product():
         if candidates:
             fresh_candidates = candidates
         else:
-            print("Search yielded no strictly relevant baby items. Using verified fallback baby product URL.")
+            print("Search yielded no strictly relevant baby clothing items. Using verified fallback baby suit URL.")
             return FALLBACK_URL
 
     selected = fresh_candidates[0]
     processed_urls.append(selected["url"])
     save_history(processed_urls)
 
-    print(f"Selected Strictly Verified Baby Product -> Title: '{selected['title']}' | URL: {selected['url']}")
+    print(f"Selected Strictly Verified Baby Clothing Product -> Title: '{selected['title']}' | URL: {selected['url']}")
     return selected["url"]
 
 def sanitize_filename(name):
