@@ -52,7 +52,6 @@ def get_single_product():
                     title = a.get_text().strip()
                     title_lower = title.lower()
                     
-                    # STRICT LAWN SUIT FILTER: Must be unstitched/lawn/suit, blocks shoes/bags/mens items
                     has_lawn = any(kw in title_lower for kw in ["lawn", "suit", "unstitched", "printed", "3-piece", "2-piece", "kurti", "cotton", "embellished"])
                     has_forbidden = any(kw in title_lower for kw in ["shoe", "shoes", "bag", "handbag", "serum", "watch", "toy", "men", "mens"])
                     
@@ -105,4 +104,4 @@ def main():
         print(f"ERROR in lawn suit test: {e}")
 
 if __name__ == "__main__":
-main()
+    main()
