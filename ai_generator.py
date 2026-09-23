@@ -4,7 +4,7 @@ import google.generativeai as genai
 
 def get_api_keys():
     keys = []
-    key_names = ["GEMINI_API_KEY"] + [f"GEMINI_API_KEY_{i}" for i in range(1, 10)]
+    key_names = ["GEMINI_API_KEY", "GEMINI_API_KEY_1", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3", "GEMINI_API_KEY_4", "GEMINI_API_KEY_5"]
     for key_name in key_names:
         key = os.environ.get(key_name)
         if key and key not in keys:
@@ -28,11 +28,10 @@ def generate_copy(title, selling_price, raw_details):
     Do not include any markdown backticks or extra text outside the JSON.
     """
 
-    fallback_models = [
+    # Proven stable production models
+    models_to_try = [
         "gemini-1.5-flash",
         "gemini-1.5-pro",
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
         "gemini-pro"
     ]
 
@@ -40,23 +39,11 @@ def generate_copy(title, selling_price, raw_details):
     for key_idx, api_key in enumerate(api_keys, start=1):
         try:
             genai.configure(api_key=api_key)
-            print(f"Using Gemini API Key #{key_idx}")
+            print(f"Trying Gemini API Key #{key_idx}")
             
-            candidate_models = []
-            try:
-                for m in genai.list_models():
-                    if 'generateContent' in m.supported_generation_methods:
-                        candidate_models.append(m.name)
-            except Exception:
-                pass
-                
-            for m in fallback_models:
-                if m not in candidate_models:
-                    candidate_models.append(m)
-
-            for model_name in candidate_models:
+            for model_name in models_to_try:
                 try:
-                    print(f"Attempting model: {model_name}")
+                    print(f"Attempting generation with model: {model_name}")
                     model = genai.GenerativeModel(model_name)
                     response = model.generate_content(prompt)
                     
@@ -69,19 +56,20 @@ def generate_copy(title, selling_price, raw_details):
                     
                     parsed = json.loads(text_resp)
                     if "description" in parsed:
+                        print(f"Successfully generated copy using {model_name}")
                         return parsed
-                except Exception as e:
-                    print(f"Model {model_name} failed: {e}")
-                    last_error = e
-                    if "429" in str(e) or "Quota" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                except Exception as model_err:
+                    print(f"Model {model_name} failed: {model_err}")
+                    last_error = model_err
+                    if "429" in str(model_err) or "Quota" in str(model_err) or "RESOURCE_EXHAUSTED" in str(model_err):
                         print("Quota limit reached. Rotating to next API key...")
                         break
                     continue
         except Exception as key_err:
-            print(f"API Key #{key_idx} configuration error: {key_err}")
+            print(f"API Key #{key_idx} error: {key_err}")
             continue
 
-    print(f"All API keys and models exhausted. Using default fallback copy. Error: {last_error}")
+    print(f"All models/keys failed. Using default fallback copy. Last error: {last_error}")
     return {
         "description": f"🔥 Best Quality {title} Now Available!\n\n✨ Price: PKR {selling_price:,}\n🚚 Cash on Delivery Available Across Pakistan!\n\nOrder now to get yours!"
     }
