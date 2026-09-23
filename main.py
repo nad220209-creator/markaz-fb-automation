@@ -48,7 +48,7 @@ CATEGORIES = [
     {
         "name": "Womens Shoes",
         "query": "Womens Casual Sneakers Khussa",
-        "fallback_url": "https://www.markaz.app/shop/product/womens-stylish-casual-sneakers-pakistan/715700",
+        "fallback_url": "https://www.markaz.app/shop/product/womens-stylish-casual-sneakers-shoes-pakistan/715650",
         "required_keywords": ["shoe", "shoes", "sneaker", "sneakers", "khussa", "sandal", "heel", "pumps", "footwear"],
         "positive_keywords": ["women", "womens", "ladies", "girl", "girls", "female"],
         "forbidden_keywords": ["men", "mens", "boy", "boys", "gents"]
@@ -122,7 +122,7 @@ def process_category(cat):
         if candidates:
             fresh_candidates = candidates
         else:
-            print(f"No strict candidates for {cat['name']}. Using fallback URL.")
+            print(f"No strict candidates for {cat['name']}. Using verified product fallback URL.")
             product_url = cat["fallback_url"]
 
     if not product_url:
