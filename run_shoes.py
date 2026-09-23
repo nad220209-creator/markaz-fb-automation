@@ -9,9 +9,9 @@ from ai_generator import generate_copy
 from pdf_builder import build_pdf
 from drive_uploader import upload_pdf
 
-CATEGORY_NAME = "Shoes"
-SEARCH_QUERY = "Womens Casual Sneakers Shoes Khussa"
-FALLBACK_URL = "https://www.markaz.app/shop/product/womens-stylish-casual-sneakers-shoes-pakistan/715700"
+CATEGORY_NAME = "Mens Shoes"
+SEARCH_QUERY = "Mens Casual Sneakers Shoes"
+FALLBACK_URL = "https://www.markaz.app/shop/product/mens-blue-slip-on-walking-sneakers-size-40-45/692757"
 HISTORY_FILE = "processed_history.json"
 
 def load_history():
@@ -52,11 +52,12 @@ def get_single_product():
                     title = a.get_text().strip()
                     title_lower = title.lower()
                     
-                    # STRICT SHOES FILTER: Must be footwear items, blocks bags/suits/serums
-                    has_shoes = any(kw in title_lower for kw in ["shoe", "shoes", "sneaker", "sneakers", "khussa", "sandal", "sandals", "heel", "heels", "boot", "boots", "footwear", "pumps"])
-                    has_forbidden = any(kw in title_lower for kw in ["bag", "suit", "serum", "watch", "toy", "skincare", "shirt"])
+                    # STRICT MEN'S SHOES FILTER
+                    has_shoes = any(kw in title_lower for kw in ["shoe", "shoes", "sneaker", "sneakers", "slip-on", "boot", "boots", "footwear"])
+                    has_men = any(kw in title_lower for kw in ["men", "mens", "boy", "boys", "gents"])
+                    has_women = any(kw in title_lower for kw in ["women", "womens", "ladies", "girl", "girls"])
                     
-                    if len(title) > 3 and has_shoes and not has_forbidden:
+                    if len(title) > 3 and has_shoes and has_men and not has_women:
                         if {"title": title, "url": full_url} not in candidates:
                             candidates.append({"title": title, "url": full_url})
     except Exception as e:
@@ -69,14 +70,14 @@ def get_single_product():
         if candidates:
             fresh_candidates = candidates
         else:
-            print("Search yielded no shoe items. Using verified fallback shoes URL.")
+            print("Using verified fallback men's shoes URL.")
             return FALLBACK_URL
 
     selected = fresh_candidates[0]
     processed_urls.append(selected["url"])
     save_history(processed_urls)
 
-    print(f"Selected Verified Shoes Product -> Title: '{selected['title']}' | URL: {selected['url']}")
+    print(f"Selected Men's Shoe Product -> Title: '{selected['title']}' | URL: {selected['url']}")
     return selected["url"]
 
 def sanitize_filename(name):
@@ -84,7 +85,7 @@ def sanitize_filename(name):
     return clean if clean else "Markaz_Product"
 
 def main():
-    print(f"=== TESTING CATEGORY: {CATEGORY_NAME} ===")
+    print(f"=== PROCESSING CATEGORY: {CATEGORY_NAME} ===")
     temp_dir = tempfile.mkdtemp()
     
     try:
@@ -102,7 +103,7 @@ def main():
         print(f"SUCCESS: {CATEGORY_NAME} PDF generated and uploaded with source link!")
         
     except Exception as e:
-        print(f"ERROR in shoes test: {e}")
+        print(f"ERROR in men's shoes test: {e}")
 
 if __name__ == "__main__":
     main()
