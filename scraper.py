@@ -64,10 +64,10 @@ def download_and_extract_media(raw_page_url, temp_dir):
         except ValueError:
             pass
 
-    # Balanced Reseller Profit Margin: Adds a fair PKR 400 markup over wholesale price
-    markup = 400
+    # Reseller Profit Margin + Silent Delivery Charge markup (Wholesale + PKR 600)
+    markup = 600
     selling_price = wholesale_price + markup
-    logger.info(f"Wholesale: PKR {wholesale_price} | Reseller Markup: PKR {markup} | Selling Price: PKR {selling_price}")
+    logger.info(f"Wholesale: PKR {wholesale_price} | Markup (Profit + Shipping): PKR {markup} | Selling Price: PKR {selling_price}")
 
     overview_section = soup.find("div", {"id": "504"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
     raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
