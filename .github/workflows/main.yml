@@ -2,7 +2,6 @@ name: Markaz Smart Automated Pipeline
 
 on:
   schedule:
-    # Runs 6 times a day from 5:00 UTC to 10:00 UTC (10:00 AM to 3:00 PM Pakistan Time)
     - cron: '0 5,6,7,8,9,10 * * *'
   workflow_dispatch:
     inputs:
@@ -34,10 +33,14 @@ jobs:
       - name: Run Pipeline Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
           RUN_ALL: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
         run: python main.py
 
