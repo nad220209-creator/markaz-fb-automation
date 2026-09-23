@@ -1,19 +1,28 @@
 import os
 import datetime
+import json
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from googleapiclient.http import MediaFileUpload
 
-# Your specific Google Drive shared folder ID
+# Your shared Google Drive Folder ID
 PARENT_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
 def get_drive_service():
     SCOPES = ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive']
+    
+    # If GOOGLE_CREDENTIALS secret is provided, write it to credentials.json on the fly
+    google_creds_env = os.environ.get("GOOGLE_CREDENTIALS")
+    if google_creds_env and not os.path.exists("credentials.json"):
+        with open("credentials.json", "w") as f:
+            f.write(google_creds_env)
+
     if os.path.exists("credentials.json"):
         creds = service_account.Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
     else:
         from google.auth import default
         creds, _ = default(scopes=SCOPES)
+        
     return build('drive', 'v3', credentials=creds)
 
 def upload_pdf(file_path, file_title):
