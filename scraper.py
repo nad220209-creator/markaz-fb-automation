@@ -5,7 +5,6 @@ import urllib.parse
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image
-import google.generativeai as genai
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -22,15 +21,12 @@ def clean_url(raw_url):
     return cleaned
 
 def extract_correct_title(soup):
-    """Intelligently extracts the true product title, ignoring reviews and UI headers."""
-    # 1. Check official OpenGraph meta title first (Most reliable on Markaz)
     og_title = soup.find("meta", property="og:title")
     if og_title and og_title.get("content"):
         raw_title = og_title["content"].split("–")[0].split("-")[0].strip()
         if raw_title and len(raw_title) > 3:
             return raw_title
 
-    # 2. Fallback to scanning headings while filtering out garbage headers
     ignored_headers = ["ratings and reviews", "customer reviews", "similar products", "you may also like", "cart", "checkout"]
     for tag in soup.find_all(["h1", "h2", "h3"]):
         text = tag.get_text().strip()
@@ -51,11 +47,9 @@ def download_and_extract_media(raw_page_url, temp_dir):
     res.raise_for_status()
     soup = BeautifulSoup(res.text, "html.parser")
 
-    # Extract clean, verified product title (skipping reviews headers)
     title = extract_correct_title(soup)
-    logger.info(f"Successfully extracted product title: {title}")
+    logger.info(f"Verified product title: {title}")
 
-    # Extract pricing
     price_text = ""
     for tag in soup.find_all(string=re.compile(r"PKR", re.IGNORECASE)):
         price_text += " " + str(tag).strip()
@@ -69,7 +63,11 @@ def download_and_extract_media(raw_page_url, temp_dir):
                 wholesale_price = extracted
         except ValueError:
             pass
-    selling_price = wholesale_price + 450
+
+    # Reseller Profit Margin: Add PKR 600 to 900+ markup over wholesale price to ensure reseller profit
+    markup = 750 if wholesale_price > 2000 else 500
+    selling_price = wholesale_price + markup
+    logger.info(f"Wholesale: PKR {wholesale_price} | Reseller Markup: PKR {markup} | Selling Price: PKR {selling_price}")
 
     overview_section = soup.find("div", {"id": "504"}) or soup.find("section", {"class": re.compile(r"overview|product", re.IGNORECASE)})
     raw_details = overview_section.text.strip() if overview_section else soup.get_text()[:2000]
