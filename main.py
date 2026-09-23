@@ -149,21 +149,13 @@ def main():
     if run_all:
         print("--- MANUAL RUN: Processing ALL Categories ---")
         for cat in CATEGORIES:
-            try:
-                process_category(cat)
-            except Exception as e:
-                print(f"ERROR processing category {cat['name']}: {e}")
+            process_category(cat)
     else:
         print("--- AUTOMATED SCHEDULE RUN: Processing ONE Category ---")
-        # Rotate category based on current hour to cover all 6 categories across the 6 daily runs
         current_hour = datetime.datetime.utcnow().hour
         cat_index = current_hour % len(CATEGORIES)
         selected_cat = CATEGORIES[cat_index]
-        
-        try:
-            process_category(selected_cat)
-        except Exception as e:
-            print(f"ERROR processing category {selected_cat['name']}: {e}")
+        process_category(selected_cat)
 
 if __name__ == "__main__":
     main()
