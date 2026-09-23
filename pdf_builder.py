@@ -7,7 +7,6 @@ class PDFReport(FPDF):
         self.product_title = product_title
 
     def header(self):
-        # Header banner styling
         self.set_fill_color(240, 240, 240)
         self.rect(0, 0, 210, 15, 'F')
         self.set_font('helvetica', 'B', 9)
@@ -28,7 +27,6 @@ def build_pdf(title, selling_price, copy_dict, image_paths, output_pdf_path, pro
     # --- PAGE 1: Text Summary, Pricing, CTA & Markaz Link ---
     pdf.add_page()
     
-    # Product Title
     pdf.set_font('helvetica', 'B', 16)
     pdf.set_text_color(20, 20, 20)
     pdf.multi_cell(0, 8, title)
@@ -41,20 +39,19 @@ def build_pdf(title, selling_price, copy_dict, image_paths, output_pdf_path, pro
     pdf.cell(0, 10, f"  Selling Price: PKR {selling_price:,} (Cash on Delivery)", 0, 1, 'L', fill=True)
     pdf.ln(6)
     
-    # Social Media Copy / Description
+    # Social Media Copy
     pdf.set_font('helvetica', 'B', 11)
     pdf.set_text_color(40, 40, 40)
     pdf.cell(0, 6, "Product Description & Social Media Copy:", 0, 1)
     pdf.set_font('helvetica', '', 10)
     pdf.set_text_color(60, 60, 60)
     
-    # Safely write description text handling encoding
     desc_text = copy_dict.get('description', 'High quality trending product.')
     safe_desc = desc_text.encode('latin-1', 'replace').decode('latin-1')
     pdf.multi_cell(0, 6, safe_desc)
     pdf.ln(8)
     
-    # Order Now & Source Verification Box
+    # Order Box & Source Verification Link
     pdf.set_fill_color(245, 245, 250)
     pdf.set_font('helvetica', 'B', 10)
     pdf.set_text_color(20, 20, 20)
@@ -72,7 +69,7 @@ def build_pdf(title, selling_price, copy_dict, image_paths, output_pdf_path, pro
     
     pdf.ln(10)
     
-    # --- SUBSEQUENT PAGES: Uncompressed HD Gallery Photos ---
+    # --- SUBSEQUENT PAGES: HD Gallery Photos ---
     for img_path in image_paths:
         if os.path.exists(img_path):
             pdf.add_page()
@@ -81,7 +78,6 @@ def build_pdf(title, selling_price, copy_dict, image_paths, output_pdf_path, pro
             pdf.cell(0, 6, "HD Product Gallery Photo:", 0, 1, 'C')
             pdf.ln(4)
             try:
-                # Place image cleanly centered maintaining aspect ratio
                 pdf.image(img_path, x=15, y=30, w=180)
             except Exception as img_err:
                 print(f"Notice embedding image {img_path}: {img_err}")
