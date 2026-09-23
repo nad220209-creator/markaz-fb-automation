@@ -1,28 +1,20 @@
 import os
 import datetime
-import json
 from googleapiclient.discovery import build
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
 
-# Your shared Google Drive Folder ID
 PARENT_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
 def get_drive_service():
-    SCOPES = ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive']
-    
-    # If GOOGLE_CREDENTIALS secret is provided, write it to credentials.json on the fly
-    google_creds_env = os.environ.get("GOOGLE_CREDENTIALS")
-    if google_creds_env and not os.path.exists("credentials.json"):
-        with open("credentials.json", "w") as f:
-            f.write(google_creds_env)
-
-    if os.path.exists("credentials.json"):
-        creds = service_account.Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
-    else:
-        from google.auth import default
-        creds, _ = default(scopes=SCOPES)
-        
+    # Authenticate using OAuth 2.0 User Credentials (Refresh Token)
+    creds = Credentials(
+        token=None,
+        refresh_token=os.environ.get("GOOGLE_REFRESH_TOKEN"),
+        client_id=os.environ.get("GOOGLE_CLIENT_ID"),
+        client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
+        token_uri="https://oauth2.googleapis.com/token"
+    )
     return build('drive', 'v3', credentials=creds)
 
 def upload_pdf(file_path, file_title):
@@ -38,7 +30,6 @@ def upload_pdf(file_path, file_title):
         folder_id = folders[0]['id']
         print(f"Found existing date folder '{today_date_str}' in your Drive.")
     else:
-        # Create today's date folder inside your main Google Drive folder
         folder_metadata = {
             'name': today_date_str,
             'mimeType': 'application/vnd.google-apps.folder',
@@ -48,7 +39,6 @@ def upload_pdf(file_path, file_title):
         folder_id = folder.get('id')
         print(f"Created new date folder '{today_date_str}' inside your main Drive folder.")
         
-    # Upload PDF into today's date folder
     file_metadata = {
         'name': f"{file_title}.pdf",
         'parents': [folder_id]
