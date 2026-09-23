@@ -30,8 +30,12 @@ jobs:
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
         run: python run_single_test.py
 
-      - name: Commit Processed History
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Update processed product history cache [skip ci]"
-          file_pattern: processed_history.json
+      - name: Commit and Push Processed History
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git pull origin main --rebase || true
+          git add processed_history.json
+          git commit -m "Update processed product history cache [skip ci]" || echo "No changes to commit"
+          git push origin HEAD:main
