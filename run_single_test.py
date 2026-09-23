@@ -30,16 +30,15 @@ def save_history(history_list):
         print(f"Error saving history: {e}")
 
 def get_single_product():
-    """Searches Markaz live using the correct search endpoint and filters out history."""
+    """Searches Markaz live with strict demographic verification (Women only, zero men's items)."""
     encoded_query = requests.utils.quote(SEARCH_QUERY)
-    # Correct Markaz search endpoint
     search_url = f"https://www.markaz.app/shop?search={encoded_query}"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    print(f"Searching Markaz live for: '{SEARCH_QUERY}' -> {search_url}...")
+    print(f"Searching Markaz live for: '{SEARCH_QUERY}'...")
     candidates = []
     
     try:
@@ -51,21 +50,28 @@ def get_single_product():
                 if "/product/" in href:
                     full_url = ("https://www.markaz.app" + href if href.startswith("/") else href).split("?")[0]
                     title = a.get_text().strip()
-                    # Strict relevance check for handbags
-                    if len(title) > 5 and any(kw in title.lower() for kw in ["bag", "handbag", "purse", "shoulder", "satchel"]):
+                    title_lower = title.lower()
+                    
+                    # STRICT DEMOGRAPHIC VERIFICATION:
+                    # Must contain bag keywords AND women keywords, and MUST NOT contain men keywords
+                    has_bag_keyword = any(kw in title_lower for kw in ["bag", "handbag", "purse", "shoulder", "satchel", "tote"])
+                    has_women_keyword = any(kw in title_lower for kw in ["women", "womens", "ladies", "girl", "girls", "female"])
+                    has_men_keyword = any(kw in title_lower for kw in ["men", "mens", "boy", "gents", "male"])
+                    
+                    if len(title) > 5 and has_bag_keyword and has_women_keyword and not has_men_keyword:
                         if {"title": title, "url": full_url} not in candidates:
                             candidates.append({"title": title, "url": full_url})
     except Exception as e:
         print(f"Search error: {e}")
 
     if not candidates:
-        raise ValueError(f"No relevant products found for query: {SEARCH_QUERY}")
+        raise ValueError(f"No strictly verified products found for query: {SEARCH_QUERY}")
 
     processed_urls = load_history()
     fresh_candidates = [c for c in candidates if c["url"] not in processed_urls]
     
     if not fresh_candidates:
-        print("Notice: All current search results have been processed. Resetting history cache...")
+        print("Notice: All current verified products have been processed. Resetting history cache...")
         processed_urls = []
         fresh_candidates = candidates
 
@@ -73,7 +79,7 @@ def get_single_product():
     processed_urls.append(selected["url"])
     save_history(processed_urls)
 
-    print(f"Selected Unique Product -> Title: '{selected['title']}' | URL: {selected['url']}")
+    print(f"Selected Strictly Verified Product -> Title: '{selected['title']}' | URL: {selected['url']}")
     return selected["url"]
 
 def sanitize_filename(name):
@@ -81,11 +87,11 @@ def sanitize_filename(name):
     return clean if clean else "Markaz_Product"
 
 def main():
-    print(f"=== TESTING SINGLE CATEGORY: {CATEGORY_NAME} ===")
+    print(f"=== TESTING SINGLE CATEGORY WITH STRICT VERIFICATION: {CATEGORY_NAME} ===")
     temp_dir = tempfile.mkdtemp()
     
     try:
-        # 1. Fetch next unique live product URL
+        # 1. Fetch strictly verified unique product URL
         product_url = get_single_product()
 
         # 2. Scrape data, apply reseller markup, and download uncompressed HD photos
@@ -99,7 +105,7 @@ def main():
         
         build_pdf(f"[{CATEGORY_NAME.upper()}] {title}", selling_price, copy_dict, image_paths, local_pdf_path)
         upload_pdf(local_pdf_path, clean_file_title)
-        print(f"SUCCESS: {CATEGORY_NAME} test PDF generated and uploaded to Google Drive!")
+        print(f"SUCCESS: {CATEGORY_NAME} strictly verified PDF generated and uploaded!")
         
     except Exception as e:
         print(f"ERROR in single category test: {e}")
