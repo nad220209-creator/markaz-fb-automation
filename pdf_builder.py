@@ -19,7 +19,6 @@ from PIL import Image
 # ----------------------------------------------------------------------
 WHATSAPP_NUMBER_INTL = "923374633605"        # digits only, no "+"
 WHATSAPP_NUMBER_DISPLAY = "+92 337 4633605"
-MAX_IMAGES = 4
 MAX_IMAGE_PX = 1600                          # longest side kept for print quality
 
 # Colour palette (R, G, B)
@@ -30,7 +29,8 @@ TEXT = (55, 55, 55)
 WHITE = (255, 255, 255)
 WA_GREEN = (37, 160, 82)
 WA_GREEN_DARK = (27, 120, 62)
-LINK_BLUE = (41, 128, 185)
+LINK_BLUE = (0, 84, 190)
+LINK_BG = (232, 241, 252)
 
 
 # ----------------------------------------------------------------------
@@ -124,12 +124,29 @@ def build_pdf(title, selling_price, copy_dict, image_paths, output_pdf_path, pro
                    new_x="LMARGIN", new_y="NEXT")
     pdf.set_y(top + banner_h + 1.6 + 4)
 
-    # Clickable Markaz source link
-    if product_url:
-        pdf.set_font("helvetica", "U", 10)
+    # Clickable Markaz verification link (prominent, blue + underlined)
+    if product_url and str(product_url).startswith("http"):
+        link_h = 11
+        link_y = pdf.get_y()
+        pdf.set_fill_color(*LINK_BG)
+        pdf.set_draw_color(*LINK_BLUE)
+        pdf.set_line_width(0.4)
+        pdf.rect(pdf.l_margin, link_y, page_w, link_h, style="DF",
+                 round_corners=True, corner_radius=2)
+
+        # Whole box is clickable: one cell with the link, drawn over the box
+        pdf.set_xy(pdf.l_margin, link_y)
+        pdf.set_font("helvetica", "BU", 12)
         pdf.set_text_color(*LINK_BLUE)
-        pdf.cell(page_w, 7, ">> View Original Product on Markaz", align="C",
-                 link=product_url, new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(page_w, link_h, ">> View Original Product on Markaz Store",
+                 align="C", link=product_url, new_x="LMARGIN", new_y="NEXT")
+
+        # Small line so the exact URL is visible (also clickable) for verification
+        pdf.set_font("helvetica", "", 7)
+        pdf.set_text_color(120, 120, 120)
+        short_url = sanitize_text(product_url if len(product_url) <= 95 else product_url[:92] + "...")
+        pdf.cell(page_w, 5, short_url, align="C", link=product_url,
+                 new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     # ------------------------------------------------------------------
@@ -219,10 +236,33 @@ def build_pdf(title, selling_price, copy_dict, image_paths, output_pdf_path, pro
     # ------------------------------------------------------------------
     # 4. PRODUCT IMAGES (centered, high-res, aspect ratio preserved)
     # ------------------------------------------------------------------
+    img_w_max = 130          # mm
+    img_h_max = 150          # mm
+
+    # Load + size EVERY image first so the heading never gets orphaned.
+    # Store compact JPEG bytes (not PIL objects) to keep memory low for big galleries.
+    image_paths = image_paths or []
+    prepared = []
+    for img_path in image_paths:
+        img = load_image(img_path)
+        if img is None:
+            continue
+        w = img_w_max
+        h = w * img.height / img.width
+        if h > img_h_max:
+            h = img_h_max
+            w = h * img.width / img.height
+        buf = BytesIO()
+        img.save(buf, "JPEG", quality=92, optimize=True)
+        prepared.append((buf.getvalue(), w, h))
+
+    heading_h = 16
+    first_h = prepared[0][2] if prepared else 10
+    if pdf.get_y() + heading_h + first_h > pdf.h - pdf.b_margin:
+        pdf.add_page()
+
     pdf.set_font("helvetica", "B", 12)
     pdf.set_text_color(*DARK)
-    if pdf.get_y() + 20 > pdf.h - pdf.b_margin:
-        pdf.add_page()
     pdf.cell(page_w, 7, "Product Images", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.set_draw_color(*ACCENT)
     pdf.set_line_width(0.5)
@@ -230,27 +270,11 @@ def build_pdf(title, selling_price, copy_dict, image_paths, output_pdf_path, pro
     pdf.line(mid - 12, pdf.get_y(), mid + 12, pdf.get_y())
     pdf.ln(5)
 
-    img_w_max = 130          # mm
-    img_h_max = 150          # mm
-    added = 0
-    for src in (image_paths or [])[:MAX_IMAGES]:
-        img = load_image(src)
-        if img is None:
-            continue
-
-        # Fit inside the max box while keeping aspect ratio
-        w = img_w_max
-        h = w * img.height / img.width
-        if h > img_h_max:
-            h = img_h_max
-            w = h * img.width / img.height
-
+    for jpeg_bytes, w, h in prepared:
         if pdf.get_y() + h > pdf.h - pdf.b_margin:
             pdf.add_page()
 
-        buf = BytesIO()
-        img.save(buf, "JPEG", quality=92, optimize=True)
-        buf.seek(0)
+        buf = BytesIO(jpeg_bytes)
 
         x = pdf.l_margin + (page_w - w) / 2
         y = pdf.get_y()
@@ -259,9 +283,8 @@ def build_pdf(title, selling_price, copy_dict, image_paths, output_pdf_path, pro
         pdf.rect(x - 1, y - 1, w + 2, h + 2)                 # thin frame
         pdf.image(buf, x=x, y=y, w=w, h=h)
         pdf.set_y(y + h + 8)
-        added += 1
 
-    if added == 0:
+    if not prepared:
         pdf.set_font("helvetica", "I", 10)
         pdf.set_text_color(150, 150, 150)
         pdf.cell(page_w, 8, "(Images not available)", align="C")
