@@ -1,8 +1,6 @@
 """
 main.py - Markaz -> Gemini copy -> PDF catalog -> Google Drive pipeline.
-Modes (env var RUN_ALL):
-  RUN_ALL=true   -> process all categories in sequence (manual run)
-  otherwise      -> process ONE category chosen by the current UTC hour (utc_hour % len(CATEGORIES)) for the scheduled cron run
+Enhanced with Multi-Query Search Rotation to guarantee fresh, unique product discovery.
 """
 
 import datetime
@@ -33,7 +31,7 @@ HISTORY_MAX_ENTRIES = 500
 SEARCH_CANDIDATE_ATTEMPTS = 5
 REQUEST_RETRIES = 3
 REQUEST_TIMEOUT = 20
-PKT = datetime.timezone(datetime.timedelta(hours=5))  # Pakistan Standard Time
+PKT = datetime.timezone(datetime.timedelta(hours=5))
 
 HEADERS = {
     "User-Agent": (
@@ -45,14 +43,15 @@ HEADERS = {
 
 GENERIC_TITLES = {"", "markaz", "markaz app", "product", "shop"}
 
-# Multiple fallback URLs per category ensure fresh rotation if search results are cached
+# Categories equipped with multiple search query variations to ensure endless fresh product discovery
 CATEGORIES = [
     {
         "name": "Women Handbag",
-        "query": "Womens Handbag Shoulder Bag",
-        "fallback_urls": [
-            "https://www.markaz.app/shop/product/womens-stylish-handbag-shoulder-bag/715000",
-            "https://www.markaz.app/shop/product/womens-elegant-leather-shoulder-bag/715001"
+        "queries": [
+            "Womens Handbag Shoulder Bag",
+            "Ladies Purse Stylish",
+            "Crossbody Bag Women",
+            "Tote Bag Ladies"
         ],
         "required_keywords": ["bag", "handbag", "purse", "shoulder", "satchel", "tote"],
         "positive_keywords": ["women", "womens", "ladies", "girl", "female"],
@@ -60,10 +59,11 @@ CATEGORIES = [
     },
     {
         "name": "Baby Suit",
-        "query": "Newborn Baby Suit Cotton Set",
-        "fallback_urls": [
-            "https://www.markaz.app/shop/product/baby-suit-set-soft-blended-3-pcs-newborn/96520",
-            "https://www.markaz.app/shop/product/newborn-baby-cotton-romper-suit/96521"
+        "queries": [
+            "Newborn Baby Suit Cotton Set",
+            "Baby Romper Suit",
+            "Infant Dress Set Pakistan",
+            "Kids Clothing Cotton"
         ],
         "required_keywords": ["baby", "newborn", "infant", "kids", "romper", "toddler"],
         "positive_keywords": ["suit", "romper", "set", "dress", "kurta", "bodysuit", "frock", "cotton"],
@@ -71,10 +71,11 @@ CATEGORIES = [
     },
     {
         "name": "Girl Skincare Beauty Kit Serum",
-        "query": "Vitamin C Face Serum Skincare Kit",
-        "fallback_urls": [
-            "https://www.markaz.app/shop/product/vitamin-c-face-serum-for-glowing-skin-pakistan/715900",
-            "https://www.markaz.app/shop/product/glow-serum-skincare-kit-pakistan/715901"
+        "queries": [
+            "Vitamin C Face Serum Skincare Kit",
+            "Face Glow Serum Pakistan",
+            "Skincare Combo Kit",
+            "Beauty Cream Serum"
         ],
         "required_keywords": ["serum", "face", "skin", "cream", "kit", "vitamin", "glow", "beauty", "cleanser", "lotion"],
         "positive_keywords": [],
@@ -82,10 +83,11 @@ CATEGORIES = [
     },
     {
         "name": "Mens Shoes",
-        "query": "Mens Casual Sneakers Shoes",
-        "fallback_urls": [
-            "https://www.markaz.app/shop/product/mens-blue-slip-on-walking-sneakers-size-40-45/692757",
-            "https://www.markaz.app/shop/product/mens-casual-sneakers-shoes-pakistan/692758"
+        "queries": [
+            "Mens Casual Sneakers Shoes",
+            "Mens Walking Shoes Slip On",
+            "Mens Sports Footwear",
+            "Boys Casual Shoes"
         ],
         "required_keywords": ["shoe", "shoes", "sneaker", "sneakers", "slip-on", "boot", "boots", "footwear"],
         "positive_keywords": ["men", "mens", "boy", "boys", "gents"],
@@ -93,10 +95,11 @@ CATEGORIES = [
     },
     {
         "name": "Womens Shoes",
-        "query": "Womens Casual Sneakers Khussa",
-        "fallback_urls": [
-            "https://www.markaz.app/shop/product/womens-stylish-casual-sneakers-pakistan/715700",
-            "https://www.markaz.app/shop/product/womens-casual-khussa-footwear/715701"
+        "queries": [
+            "Womens Casual Sneakers Khussa",
+            "Ladies Stylish Sandals Shoes",
+            "Women Pumps Khussa",
+            "Girls Casual Footwear"
         ],
         "required_keywords": ["shoe", "shoes", "sneaker", "sneakers", "khussa", "sandal", "heel", "pumps", "footwear"],
         "positive_keywords": ["women", "womens", "ladies", "girl", "girls", "female"],
@@ -104,10 +107,11 @@ CATEGORIES = [
     },
     {
         "name": "Women Unstitched Lawn Suit",
-        "query": "Women Unstitched Lawn Suit Printed",
-        "fallback_urls": [
-            "https://www.markaz.app/shop/product/womens-printed-unstitched-lawn-suit-pakistan/715500",
-            "https://www.markaz.app/shop/product/womens-unstitched-lawn-suit-3-piece/715501"
+        "queries": [
+            "Women Unstitched Lawn Suit Printed",
+            "3 Piece Lawn Suit Unstitched",
+            "Printed Lawn Kurti Suit",
+            "Summer Lawn Suit Unstitched"
         ],
         "required_keywords": ["lawn", "suit", "unstitched", "printed", "3-piece", "2-piece", "kurti", "cotton"],
         "positive_keywords": [],
@@ -116,7 +120,7 @@ CATEGORIES = [
 ]
 
 # ----------------------------------------------------------------------
-# History cache {product_url: "ISO timestamp"}
+# History cache
 # ----------------------------------------------------------------------
 def load_history():
     if not os.path.exists(HISTORY_FILE):
@@ -182,7 +186,7 @@ def passes_filters(text, cat):
     return True
 
 # ----------------------------------------------------------------------
-# Networking
+# Networking & Multi-Query Candidate Finder
 # ----------------------------------------------------------------------
 def fetch_html(url):
     for attempt in range(1, REQUEST_RETRIES + 1):
@@ -190,53 +194,55 @@ def fetch_html(url):
             res = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
             if res.status_code == 200 and res.text:
                 return res.text
-            print(f"[search] HTTP {res.status_code} on attempt {attempt}/{REQUEST_RETRIES}")
-        except requests.RequestException as e:
-            print(f"[search] Request error on attempt {attempt}/{REQUEST_RETRIES}: {e}")
+        except requests.RequestException:
+            pass
         time.sleep(2 * attempt)
     return None
 
 def find_candidates(cat):
-    search_url = f"{BASE_URL}/shop?search={quote(cat['query'])}"
-    print(f"[search] {search_url}")
-    html = fetch_html(search_url)
-    if not html:
-        print("[search] No HTML returned.")
-        return []
-    
-    found = {}
-    soup = BeautifulSoup(html, "html.parser")
-    for a in soup.find_all("a", href=True):
-        url = normalize_product_url(a["href"])
-        if not url:
+    """
+    Cycles through multiple query variations for the category to gather a wide pool of fresh products.
+    """
+    all_candidates = []
+    seen_urls = set()
+
+    for query in cat["queries"]:
+        search_url = f"{BASE_URL}/shop?search={quote(query)}"
+        print(f"[search] Query: '{query}' -> {search_url}")
+        html = fetch_html(search_url)
+        if not html:
             continue
-        img = a.find("img")
-        title = (a.get_text(" ", strip=True) or a.get("title") or (img.get("alt") if img else "") or "").strip()
-        if len(title) > len(found.get(url, "")):
-            found[url] = title
+        
+        found = {}
+        soup = BeautifulSoup(html, "html.parser")
+        for a in soup.find_all("a", href=True):
+            url = normalize_product_url(a["href"])
+            if not url:
+                continue
+            img = a.find("img")
+            title = (a.get_text(" ", strip=True) or a.get("title") or (img.get("alt") if img else "") or "").strip()
+            if len(title) > len(found.get(url, "")):
+                found[url] = title
 
-    for path in PRODUCT_PATH_RE.findall(html):
-        found.setdefault(f"{BASE_URL}{path}", "")
+        for path in PRODUCT_PATH_RE.findall(html):
+            found.setdefault(f"{BASE_URL}{path}", "")
 
-    candidates = []
-    for url, title in found.items():
-        title = title if len(title) > 3 else slug_title(url)
-        if passes_filters(f"{title} {slug_title(url)}", cat):
-            candidates.append({"title": title, "url": url})
-            
-    print(f"[search] {len(found)} links found, {len(candidates)} passed filters.")
-    return candidates
+        for url, title in found.items():
+            if url in seen_urls:
+                continue
+            title = title if len(title) > 3 else slug_title(url)
+            if passes_filters(f"{title} {slug_title(url)}", cat):
+                seen_urls.add(url)
+                all_candidates.append({"title": title, "url": url})
+
+    print(f"[search] Total unique filtered candidates found across queries: {len(all_candidates)}")
+    return all_candidates
 
 # ----------------------------------------------------------------------
-# Queue Builder (STRICT: Never repeat history unless fully exhausted)
+# Queue Builder (Strictly picking un-processed unique products)
 # ----------------------------------------------------------------------
-def build_attempt_queue(cat, candidates, history):
-    # 1. Strictly pick fresh candidates NOT in history
+def build_attempt_queue(candidates, history):
     fresh = [c["url"] for c in candidates if c["url"] not in history]
-    
-    # 2. Pick fallback URLs NOT in history
-    unused_fallbacks = [url for url in cat["fallback_urls"] if url not in history]
-    
     queue = []
     seen = set()
     
@@ -245,16 +251,10 @@ def build_attempt_queue(cat, candidates, history):
             seen.add(url)
             queue.append(url)
             
-    for url in unused_fallbacks:
-        if url not in seen:
-            seen.add(url)
-            queue.append(url)
-            
-    # Absolute last resort if everything is cached
-    if not queue:
-        print(f"[select] NOTICE: All candidates and fallbacks for {cat['name']} are in history. Rotating least-recently-used.")
-        all_urls = [c["url"] for c in candidates] + cat["fallback_urls"]
-        sorted_by_oldest = sorted(all_urls, key=lambda u: history.get(u, ""))
+    # If all current search results are in history, sort remaining candidates by oldest history timestamp
+    if not queue and candidates:
+        print("[select] All current candidates in history. Rotating least-recently-used candidates.")
+        sorted_by_oldest = sorted([c["url"] for c in candidates], key=lambda u: history.get(u, ""))
         for url in sorted_by_oldest:
             if url not in seen:
                 seen.add(url)
@@ -313,7 +313,7 @@ def process_category(cat):
     print(f"\n{'=' * 60}\nPROCESSING CATEGORY: {cat['name']}\n{'=' * 60}")
     history = load_history()
     candidates = find_candidates(cat)
-    queue = build_attempt_queue(cat, candidates, history)
+    queue = build_attempt_queue(candidates, history)
     
     for url in queue:
         temp_dir = tempfile.mkdtemp(prefix="markaz_")
@@ -325,7 +325,7 @@ def process_category(cat):
             print(f"[pdf] Building PDF with {len(image_paths)} image(s)...")
             build_pdf(f"[{cat['name'].upper()}] {title}", price, copy_dict, image_paths, pdf_path, product_url=url)
             upload(pdf_path, file_title)
-            mark_processed(url)  # Record in history after success
+            mark_processed(url)
             print(f"[done] SUCCESS: {cat['name']} PDF generated and uploaded.")
             return True
         except Exception as e:
