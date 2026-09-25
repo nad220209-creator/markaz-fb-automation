@@ -20,7 +20,7 @@ def generate_product_seo(product_data):
 
     Return strictly in this format:
     TITLE: [Catchy SEO-optimized marketplace title with keywords, max 80 chars]
-    PRICE: [Digits only, exactly the wholesale price provided e.g. 4500]
+    PRICE: [Digits only, exactly the wholesale price provided e.g. {raw_price}]
     DESCRIPTION: [Persuasive Roman Urdu & English description highlighting quality/comfort, 
     mentioning '📦 Cash on Delivery Available Across Pakistan!', 
     and call to action '💬 Order Now via WhatsApp: https://wa.me/{whatsapp_number}',
@@ -37,7 +37,6 @@ def generate_product_seo(product_data):
             if line.startswith("TITLE:"):
                 title = line.replace("TITLE:", "").strip()
             elif line.startswith("PRICE:"):
-                # Clean price: filter digits and keep only reasonable price lengths (max 5 digits)
                 digits = ''.join(filter(str.isdigit, line))
                 if digits and len(digits) <= 5:
                     price = digits
