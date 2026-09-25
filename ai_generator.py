@@ -1,59 +1,74 @@
 import os
-import json
 import google.generativeai as genai
 
-def get_api_keys():
-    keys = []
-    key_names = ["GEMINI_API_KEY", "GEMINI_API_KEY_1", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3", "GEMINI_API_KEY_4", "GEMINI_API_KEY_5"]
-    for key_name in key_names:
-        key = os.environ.get(key_name)
-        if key and key not in keys:
-            keys.append(key)
-    if not keys:
-        raise ValueError("No Gemini API keys found in environment variables.")
-    return keys
+# Configure Gemini API Key
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
-def generate_copy(title, selling_price, raw_details):
-    api_keys = get_api_keys()
-    
+def generate_product_seo(product_data):
+    """
+    AI Brain: Analyzes raw product details and generates SEO-optimized titles, 
+    smart pricing, and engaging Roman Urdu descriptions tailored for shoes, bags, or seasonal clothes.
+    """
+    raw_title = product_data.get("title", "Product")
+    raw_price = product_data.get("price", "1500")
+    raw_desc = product_data.get("description", "")
+    whatsapp_number = os.environ.get("WHATSAPP_NUMBER", "923001234567")
+
     prompt = f"""
-    You are an expert e-commerce copywriter in Pakistan. Write high-converting social media marketing copy for Facebook and Instagram for the following product.
+    You are an expert E-commerce Copywriter and Facebook Marketplace SEO Specialist for the Pakistan market (Lahore, Faisalabad, Karachi, etc.).
     
-    Product Title: {title}
-    Selling Price: PKR {selling_price} (Cash on Delivery available)
-    Product Details: {raw_details}
-    
-    Return ONLY a valid JSON object with a single key "description" containing the marketing copy. The copy must be engaging, mention Cash on Delivery across Pakistan, include relevant hashtags, and be written in a mix of clear English and appealing Roman Urdu where appropriate. 
-    Do not include any markdown backticks or extra text outside the JSON.
+    Analyze this product and generate a high-converting listing:
+    - Raw Title: {raw_title}
+    - Raw Price: {raw_price}
+    - Raw Description: {raw_desc}
+
+    Provide your response strictly in the following format:
+    TITLE: [Create a catchy, SEO-optimized Facebook Marketplace title packed with searchable keywords. Max 80 chars.]
+    PRICE: [Extract or optimize the selling price in digits only, e.g., 1850]
+    DESCRIPTION: [Write an engaging, persuasive sales description in Roman Urdu mixed with English. 
+    - Highlight quality, comfort (if shoes), space/pockets (if bags), or fabric/warmth (if seasonal clothes).
+    - Mention: 📦 Cash on Delivery Available Across Pakistan!
+    - Include call to action: 💬 Order Now via WhatsApp: https://wa.me/{whatsapp_number}
+    - Add trending hashtags like #Markaz #OnlineShopping #PakistanShopping #CashOnDelivery]
     """
 
-    models_to_try = [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-pro"
-    ]
+    try:
+        # Use Gemini Flash for lightning-fast AI generation
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        
+        # Parse AI response
+        title = raw_title
+        price = str(raw_price)
+        description = raw_desc
 
-    for key_idx, api_key in enumerate(api_keys, start=1):
-        try:
-            genai.configure(api_key=api_key)
-            for model_name in models_to_try:
-                try:
-                    model = genai.GenerativeModel(model_name)
-                    response = model.generate_content(prompt)
-                    text_resp = response.text.strip()
-                    if text_resp.startswith("```json"):
-                        text_resp = text_resp[7:]
-                    if text_resp.endswith("```"):
-                        text_resp = text_resp[:-3]
-                    parsed = json.loads(text_resp.strip())
-                    if "description" in parsed:
-                        return parsed
-                except Exception:
-                    continue
-        except Exception:
-            continue
+        for line in text.split("\n"):
+            if line.startswith("TITLE:"):
+                title = line.replace("TITLE:", "").strip()
+            elif line.startswith("PRICE:"):
+                price = line.replace("PRICE:", "").strip()
+            elif line.startswith("DESCRIPTION:"):
+                # Capture everything after DESCRIPTION:
+                desc_idx = text.find("DESCRIPTION:")
+                description = text[desc_idx + len("DESCRIPTION:"):].strip()
+                break
+                
+        # Clean up price to ensure only numbers
+        price = ''.join(filter(str.isdigit, price))
+        if not price:
+            price = "1500"
 
-    # Guaranteed fallback copy so pipeline never fails
-    return {
-        "description": f"🔥 Best Quality {title} Now Available!\n\n✨ Price: PKR {selling_price:,}\n🚚 Cash on Delivery Available Across Pakistan!\n\nOrder now to get yours!"
-    }
+        return {
+            "title": title,
+            "price": price,
+            "description": description
+        }
+
+    except Exception as e:
+        print(f"⚠️ AI Brain generation error: {e}. Falling back to default formatting.")
+        return {
+            "title": raw_title[:100],
+            "price": str(raw_price),
+            "description": f"{raw_title}\n\n📦 Cash on Delivery Available Across Pakistan!\n💬 Order Now via WhatsApp: https://wa.me/{whatsapp_number}"
+        }
