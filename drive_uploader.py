@@ -1,59 +1,65 @@
 import os
+import json
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
 
 PARENT_FOLDER_ID = "1NPYh-JHxjxF_kyu1ibkTO-AWhRCIJVmP"
 
 def get_drive_service():
-    return build('drive', 'v3', credentials=Credentials(
-        token=None,
-        refresh_token=os.environ.get("GOOGLE_REFRESH_TOKEN"),
-        client_id=os.environ.get("GOOGLE_CLIENT_ID"),
-        client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
-        token_uri="https://oauth2.googleapis.com/token"
-    ))
+    creds_json = os.environ.get("GOOGLE_DRIVE_CREDENTIALS")
+    if creds_json:
+        creds_dict = json.loads(creds_json)
+        creds = service_account.Credentials.from_service_account_info(
+            creds_dict, scopes=['https://www.googleapis.com/auth/drive']
+        )
+        return build('drive', 'v3', credentials=creds)
+    return None
 
-def get_or_create_folder(service, folder_name, parent_id):
-    query = f"name = '{folder_name}' and '{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-    res = service.files().list(q=query, spaces='drive', fields='files(id)').execute()
-    folders = res.get('files', [])
-    if folders:
-        return folders[0]['id']
+def create_folder(service, name, parent_id):
+    query = f"name='{name}' and parents='{parent_id}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    files = results.get('files', [])
+    if files:
+        return files[0]['id']
     
-    metadata = {'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_id]}
-    return service.files().create(body=metadata, fields='id').execute().get('id')
+    file_metadata = {
+        'name': name,
+        'mimeType': 'application/vnd.google-apps.folder',
+        'parents': [parent_id]
+    }
+    folder = service.files().create(body=file_metadata, fields='id').execute()
+    return folder.get('id')
 
-def upload_product_folder(date_str, category_name, product_id, product_title, image_paths, title, price, description, product_url):
+def upload_product_to_drive(product_data, local_images, details_content, date_str):
     service = get_drive_service()
+    if not service:
+        print("Google Drive service unavailable.")
+        return
+
+    date_folder_id = create_folder(service, date_str, PARENT_FOLDER_ID)
+    shoes_folder_id = create_folder(service, "Shoes", date_folder_id)
     
-    # 1. Today's date folder
-    date_folder_id = get_or_create_folder(service, date_str, PARENT_FOLDER_ID)
-    
-    # 2. Category folder (Unstitched, Stitched, Bags, Shoes)
-    category_folder_id = get_or_create_folder(service, category_name.capitalize(), date_folder_id)
-    
-    # 3. Unique product subfolder
-    safe_title = "".join(c for c in product_title if c.isalnum() or c in (' ', '-', '_')).strip()[:30]
-    unique_folder_name = f"{safe_title}_{str(product_id)[-6:]}"
-    product_folder_id = get_or_create_folder(service, unique_folder_name, category_folder_id)
-    
-    # 4. Upload details.txt with the specific dynamic Markaz Link for this product
-    details_path = "/tmp/details.txt"
+    safe_title = "".join(c for c in product_data['title'][:30] if c.isalnum() or c in (' ', '_', '-')).strip()
+    product_folder_id = create_folder(service, safe_title, shoes_folder_id)
+
+    details_path = "temp_details.txt"
     with open(details_path, "w", encoding="utf-8") as f:
-        f.write(f"Title: {title}\nPrice: PKR {price}\nMarkaz Link: {product_url}\n\nDescription:\n{description}")
+        f.write(details_content)
+    
+    media = MediaFileUpload(details_path, mimetype='text/plain')
     service.files().create(
         body={'name': 'details.txt', 'parents': [product_folder_id]},
-        media_body=MediaFileUpload(details_path, mimetype='text/plain'),
+        media_body=media,
         fields='id'
     ).execute()
-    
-    # 5. Upload all extracted images
-    for idx, img_path in enumerate(image_paths, start=1):
-        service.files().create(
-            body={'name': f"img_{idx}.jpg", 'parents': [product_folder_id]},
-            media_body=MediaFileUpload(img_path, mimetype='image/jpeg'),
-            fields='id'
-        ).execute()
-        
-    print(f"✅ Uploaded [{category_name}] -> '{unique_folder_name}' with {len(image_paths)} images.")
+    os.remove(details_path)
+
+    for img_path in local_images:
+        if os.path.exists(img_path):
+            media_img = MediaFileUpload(img_path, mimetype='image/jpeg')
+            service.files().create(
+                body={'name': os.path.basename(img_path), 'parents': [product_folder_id]},
+                media_body=media_img,
+                fields='id'
+            ).execute()
