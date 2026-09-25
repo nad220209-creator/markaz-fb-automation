@@ -1,59 +1,74 @@
+import os
 import datetime
-from scraper import scrape_products
-from ai_generator import generate_product_seo
-from history_manager import is_already_processed, mark_as_processed
-from drive_uploader import upload_product_folder
+import requests
+from scraper import scrape_shoes_products
+from ai_generator import generate_optimized_content
+from drive_uploader import upload_product_to_drive
+from history_manager import load_history, is_processed, mark_processed
 
-TARGET_CATEGORIES = [
-    "unstitched",
-    "stitched",
-    "bags",
-    "shoes"
-]
+WHATSAPP_LINK = "https://wa.me/923374633605"
 
-def run_pipeline():
-    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-    print(f"🚀 Starting Markaz Automated Pipeline for Date: {today_str}")
+def main():
+    print("Starting Markaz Shoes Automation Pipeline...")
+    history = load_history()
     
-    total_uploaded = 0
-    
-    for category in TARGET_CATEGORIES:
-        print(f"\n🔍 Processing Category: {category.upper()}")
-        try:
-            products = scrape_products(category, max_items=1)
-        except Exception as e:
-            print(f"⚠️ Scraper error for '{category}': {e}")
+    products = scrape_shoes_products(max_products=3)
+    if not products:
+        print("No products found during scraping.")
+        return
+
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+
+    for product in products:
+        url = product['url']
+        if is_processed(url, history):
+            print(f"Skipping already processed product: {product['title']}")
             continue
-        
-        for product in products:
+
+        print(f"Processing product: {product['title']}")
+
+        os.makedirs("temp_images", exist_ok=True)
+        local_images = []
+        for idx, img_url in enumerate(product['images'], start=1):
             try:
-                p_id = product.get("id")
-                if not p_id or is_already_processed(p_id):
-                    print(f"⏭️ Skipping already processed: {product.get('title')}")
-                    continue
-                    
-                print(f"✨ Running AI Brain for: {product['title']}")
-                seo_data = generate_product_seo(product)
-                
-                print(f"📁 Uploading folder and files to Google Drive...")
-                upload_product_folder(
-                    date_str=today_str,
-                    category_name=category,
-                    product_id=p_id,
-                    product_title=product['title'],
-                    image_paths=product['image_paths'],
-                    title=seo_data['title'],
-                    price=seo_data['price'],
-                    description=seo_data['description'],
-                    product_url=product.get('product_url', 'https://www.markaz.app/')
-                )
-                
-                mark_as_processed(p_id)
-                total_uploaded += 1
+                img_data = requests.get(img_url, timeout=10).content
+                img_path = os.path.join("temp_images", f"image_{idx}.jpg")
+                with open(img_path, "wb") as f:
+                    f.write(img_data)
+                local_images.append(img_path)
             except Exception as e:
-                print(f"❌ Error processing product: {e}")
-                
-    print(f"\n🎉 Pipeline Finished! Successfully uploaded {total_uploaded} unique product packages.")
+                print(f"Failed to download image {idx}: {e}")
+
+        ai_output = generate_optimized_content(
+            product_title=product['title'],
+            raw_overview=product['overview'],
+            price=product['price']
+        )
+
+        details_content = f"""========================================
+MARKAZ SHOES AUTOMATION PIPELINE
+========================================
+
+{ai_output}
+
+----------------------------------------
+PRICING & ORDERING:
+Price: {product['price']}
+WhatsApp Order Link: {WHATSAPP_LINK}
+Direct Verification Link: {url}
+========================================
+"""
+
+        upload_product_to_drive(product, local_images, details_content, date_str)
+        mark_processed(url, history)
+
+        for img_path in local_images:
+            if os.path.exists(img_path):
+                os.remove(img_path)
+        if os.path.exists("temp_images"):
+            os.rmdir("temp_images")
+
+        print(f"Successfully processed and uploaded: {product['title']}")
 
 if __name__ == "__main__":
-    run_pipeline()
+    main()
