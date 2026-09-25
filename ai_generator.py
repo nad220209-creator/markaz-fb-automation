@@ -1,55 +1,67 @@
 import os
-import google.generativeai as genai
+from google import genai
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+def get_gemini_client():
+    api_key = os.environ.get("GEMINI_API_KEY")
+    return genai.Client(api_key=api_key)
 
-def generate_product_seo(product_data):
-    """Formats SEO text, locks WhatsApp to +923374633605, and keeps price clean."""
-    raw_title = product_data.get("title", "Product")
-    raw_price = str(product_data.get("price", "1500"))
-    raw_desc = product_data.get("description", "")
+def generate_optimized_content(product_title, raw_overview, price):
+    client = get_gemini_client()
     
-    whatsapp_number = "923374633605"
+    # Candidate models list prioritizing Gemini 3.6 and falling back across active models
+    candidate_models = [
+        "gemini-3.6-flash",
+        "gemini-3.6-pro",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+    ]
+    
+    # Dynamically inject any available active models from the API client if supported
+    try:
+        available_models = [m.name.replace("models/", "") for m in client.models.list()]
+        for am in available_models:
+            if "gemini" in am and am not in candidate_models:
+                candidate_models.insert(0, am)
+    except Exception:
+        pass
 
     prompt = f"""
-    You are an expert E-commerce Copywriter for Facebook Marketplace in Pakistan.
-    Analyze this product:
-    - Title: {raw_title}
-    - Price: {raw_price}
-    - Description: {raw_desc}
-
-    Return strictly in this format:
-    TITLE: [Catchy SEO-optimized marketplace title with keywords, max 80 chars]
-    PRICE: [Digits only, exactly the wholesale price provided e.g. {raw_price}]
-    DESCRIPTION: [Persuasive Roman Urdu & English description highlighting quality/comfort, 
-    mentioning '📦 Cash on Delivery Available Across Pakistan!', 
-    and call to action '💬 Order Now via WhatsApp: https://wa.me/{whatsapp_number}',
-    plus hashtags #Markaz #OnlineShopping #PakistanShopping #CashOnDelivery]
+    You are an expert e-commerce copywriter for Facebook Marketplace in Pakistan.
+    Optimize the following product details for a shoe listing:
+    
+    Original Title: {product_title}
+    Original Overview: {raw_overview}
+    Price: {price}
+    
+    Requirements:
+    1. Provide an attractive, SEO-optimized Facebook Marketplace Title in English.
+    2. Write a persuasive, high-converting sales description in Roman Urdu that highlights comfort, durability for local city streets (Lahore, Karachi, Islamabad), available sizing, and easy ordering.
+    
+    Format your response clearly:
+    SEO TITLE: [Title]
+    
+    ROMAN URDU DESCRIPTION:
+    [Description]
     """
 
-    try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content(prompt)
-        text = response.text.strip()
-        
-        title, price, description = raw_title, raw_price, raw_desc
-        for line in text.split("\n"):
-            if line.startswith("TITLE:"):
-                title = line.replace("TITLE:", "").strip()
-            elif line.startswith("PRICE:"):
-                digits = ''.join(filter(str.isdigit, line))
-                if digits and len(digits) <= 5:
-                    price = digits
-            elif line.startswith("DESCRIPTION:"):
-                desc_idx = text.find("DESCRIPTION:")
-                description = text[desc_idx + len("DESCRIPTION:"):].strip()
+    response_text = None
+    for model_name in candidate_models:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            if response and response.text:
+                response_text = response.text
+                print(f"Successfully generated content using Gemini model: {model_name}")
                 break
+        except Exception as e:
+            print(f"Model {model_name} unavailable, trying next fallback: {e}")
+            continue
 
-        return {"title": title, "price": price, "description": description}
-    except Exception as e:
-        print(f"⚠️ AI Brain error: {e}")
-        return {
-            "title": raw_title[:100],
-            "price": raw_price,
-            "description": f"{raw_title}\n\n📦 Cash on Delivery Available Across Pakistan!\n💬 Order Now via WhatsApp: https://wa.me/{whatsapp_number}"
-        }
+    if not response_text:
+        response_text = f"SEO TITLE: {product_title}\n\nROMAN URDU DESCRIPTION:\nBehtareen comfort aur stylish look ke sath! Daily use aur walk ke liye zabardast. Lahore, Karachi, Islamabad aur poore Pakistan mein cash on delivery available hai."
+
+    return response_text
