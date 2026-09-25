@@ -1,7 +1,6 @@
 import os
 import requests
 from PIL import Image
-import numpy as np
 
 def scrape_products(keyword, max_items=3):
     """
@@ -14,12 +13,12 @@ def scrape_products(keyword, max_items=3):
     os.makedirs("/tmp/sample_imgs", exist_ok=True)
     sample_img_path = "/tmp/sample_imgs/sample_product.jpg"
     
-    # Generate a simple test image if it doesn't exist
+    # Generate a simple test image if it doesn't exist (no numpy needed!)
     if not os.path.exists(sample_img_path):
         img = Image.new('RGB', (800, 800), color=(73, 109, 137))
         img.save(sample_img_path)
 
-    # Targeted sample data matching your high-demand categories
+    # Targeted sample data matching your high-demand categories (Shoes, Bags, Seasonal)
     mock_catalog = {
         "shoes": [
             {
