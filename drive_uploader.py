@@ -24,28 +24,31 @@ def get_or_create_folder(service, folder_name, parent_id):
     metadata = {'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_id]}
     return service.files().create(body=metadata, fields='id').execute().get('id')
 
-def upload_product_folder(date_str, product_id, product_title, image_paths, title, price, description):
+def upload_product_folder(date_str, category_name, product_id, product_title, image_paths, title, price, description, product_url):
     service = get_drive_service()
     
     # 1. Today's date folder
     date_folder_id = get_or_create_folder(service, date_str, PARENT_FOLDER_ID)
     
-    # 2. Unique safe product subfolder (combines title + unique product ID to prevent duplicates)
-    safe_title = "".join(c for c in product_title if c.isalnum() or c in (' ', '-', '_')).strip()[:35]
-    unique_folder_name = f"{safe_title}_{str(product_id)[-6:]}"
-    product_folder_id = get_or_create_folder(service, unique_folder_name, date_folder_id)
+    # 2. Category folder (Unstitched, Stitched, Bags, Shoes)
+    category_folder_id = get_or_create_folder(service, category_name.capitalize(), date_folder_id)
     
-    # 3. Upload details.txt
+    # 3. Unique product subfolder
+    safe_title = "".join(c for c in product_title if c.isalnum() or c in (' ', '-', '_')).strip()[:30]
+    unique_folder_name = f"{safe_title}_{str(product_id)[-6:]}"
+    product_folder_id = get_or_create_folder(service, unique_folder_name, category_folder_id)
+    
+    # 4. Upload details.txt with Markaz Product Link
     details_path = "/tmp/details.txt"
     with open(details_path, "w", encoding="utf-8") as f:
-        f.write(f"Title: {title}\nPrice: PKR {price}\n\nDescription:\n{description}")
+        f.write(f"Title: {title}\nPrice: PKR {price}\nMarkaz Link: {product_url}\n\nDescription:\n{description}")
     service.files().create(
         body={'name': 'details.txt', 'parents': [product_folder_id]},
         media_body=MediaFileUpload(details_path, mimetype='text/plain'),
         fields='id'
     ).execute()
     
-    # 4. Upload clean images
+    # 5. Upload all extracted images
     for idx, img_path in enumerate(image_paths, start=1):
         service.files().create(
             body={'name': f"img_{idx}.jpg", 'parents': [product_folder_id]},
@@ -53,4 +56,4 @@ def upload_product_folder(date_str, product_id, product_title, image_paths, titl
             fields='id'
         ).execute()
         
-    print(f"✅ Uploaded unique folder '{unique_folder_name}' with {len(image_paths)} images and SEO details.")
+    print(f"✅ Uploaded [{category_name}] -> '{unique_folder_name}' with {len(image_paths)} images.")
