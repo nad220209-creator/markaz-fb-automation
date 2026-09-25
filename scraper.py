@@ -4,10 +4,10 @@ import zipfile
 import requests
 from PIL import Image
 
-def download_and_extract_media_zip(zip_url):
+def download_media_flexible(url):
     """
-    Downloads the product media .zip file from Markaz 'Download Media' link,
-    extracts all images, converts them to clean .jpg files, and returns their local paths.
+    Handles both direct image URLs and .zip archive downloads seamlessly 
+    without crashing, saving clean .jpg files to /tmp/scraped_images.
     """
     os.makedirs("/tmp/scraped_images", exist_ok=True)
     saved_image_paths = []
@@ -17,36 +17,49 @@ def download_and_extract_media_zip(zip_url):
     }
     
     try:
-        print(f"📦 Downloading media zip package from Markaz...")
-        response = requests.get(zip_url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+        print(f"📥 Downloading media from: {url}")
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code != 200:
+            print(f"⚠️ Failed to download URL. Status: {response.status_code}")
+            return []
+            
+        content = response.content
+        
+        # Check if the content is a ZIP archive
+        if url.endswith('.zip') or b"PK\x03\x04" in content[:4]:
+            print("📦 Extracting ZIP archive...")
+            with zipfile.ZipFile(io.BytesIO(content)) as z:
                 for filename in z.namelist():
                     if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                         img_data = z.read(filename)
                         img = Image.open(io.BytesIO(img_data))
                         if img.mode in ("RGBA", "P"):
                             img = img.convert("RGB")
-                        
-                        local_path = os.path.join("/tmp/scraped_images", f"markaz_img_{len(saved_image_paths)+1}.jpg")
+                        local_path = os.path.join("/tmp/scraped_images", f"img_{len(saved_image_paths)+1}.jpg")
                         img.save(local_path, "JPEG", quality=95)
                         saved_image_paths.append(local_path)
         else:
-            print(f"⚠️ Failed to download zip. Status: {response.status_code}")
+            # Treat as a direct image file (like the [Winter Collection Dhanak 3 Piece Unstitched Suit](https://www.markaz.app/shop/product/winter-collection-dhanak-3-piece-unstitched-suit/763861) preview)
+            img = Image.open(io.BytesIO(content))
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            local_path = os.path.join("/tmp/scraped_images", "img_1.jpg")
+            img.save(local_path, "JPEG", quality=95)
+            saved_image_paths.append(local_path)
+            
     except Exception as e:
-        print(f"❌ Error extracting media zip: {e}")
+        print(f"❌ Error processing media download: {e}")
         
     return saved_image_paths
 
 def scrape_products(category_keyword, max_items=1):
     """
-    Picks 1 top product per category from Markaz, extracts its metadata, 
-    and downloads all its images from the media zip archive.
+    Picks top products from Markaz, extracts metadata, 
+    and downloads media using the flexible downloader.
     """
     kw = category_keyword.lower()
     print(f"🔍 Fetching top Markaz product for category: {category_keyword}")
     
-    # Master catalog linking each category to its Markaz details and Media Zip URL
     markaz_catalog = {
         "unstitched": [
             {
@@ -54,7 +67,6 @@ def scrape_products(category_keyword, max_items=1):
                 "title": "Winter Collection Dhanak 3 Piece Unstitched Suit",
                 "price": "4500",
                 "description": "Exclusive winter collection dhanak fabric 3-piece unstitched suit with vibrant digital prints and warm wool shawl.",
-                # Direct link or archive source for the product's media zip package
                 "media_zip_url": "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b" 
             }
         ],
@@ -87,7 +99,6 @@ def scrape_products(category_keyword, max_items=1):
         ]
     }
 
-    # Select pool based on keyword
     if "unstitched" in kw:
         pool = markaz_catalog["unstitched"]
     elif "stitched" in kw:
@@ -99,8 +110,7 @@ def scrape_products(category_keyword, max_items=1):
 
     matched_products = []
     for item in pool[:max_items]:
-        # Download and extract all images from the product's media zip archive
-        image_paths = download_and_extract_media_zip(item["media_zip_url"])
+        image_paths = download_media_flexible(item["media_zip_url"])
         if image_paths:
             item["image_paths"] = image_paths
             matched_products.append(item)
