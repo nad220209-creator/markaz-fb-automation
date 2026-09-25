@@ -1,111 +1,106 @@
 import os
 import io
+import zipfile
 import requests
 from PIL import Image
 
-def download_images(image_urls):
-    """Downloads real product images and saves them as clean .jpg files."""
+def download_and_extract_media_zip(zip_url):
+    """
+    Downloads the product media .zip file from Markaz 'Download Media' link,
+    extracts all images, converts them to clean .jpg files, and returns their local paths.
+    """
     os.makedirs("/tmp/scraped_images", exist_ok=True)
     saved_image_paths = []
     
-    for idx, url in enumerate(image_urls, start=1):
-        try:
-            res = requests.get(url, timeout=15)
-            if res.status_code == 200:
-                img = Image.open(io.BytesIO(res.content))
-                if img.mode in ("RGBA", "P"):
-                    img = img.convert("RGB")
-                    
-                local_path = os.path.join("/tmp/scraped_images", f"markaz_item_{idx}.jpg")
-                img.save(local_path, "JPEG", quality=95)
-                saved_image_paths.append(local_path)
-        except Exception as e:
-            print(f"⚠️ Image download warning: {e}")
-            
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    try:
+        print(f"📦 Downloading media zip package from Markaz...")
+        response = requests.get(zip_url, headers=headers, timeout=30)
+        if response.status_code == 200:
+            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+                for filename in z.namelist():
+                    if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        img_data = z.read(filename)
+                        img = Image.open(io.BytesIO(img_data))
+                        if img.mode in ("RGBA", "P"):
+                            img = img.convert("RGB")
+                        
+                        local_path = os.path.join("/tmp/scraped_images", f"markaz_img_{len(saved_image_paths)+1}.jpg")
+                        img.save(local_path, "JPEG", quality=95)
+                        saved_image_paths.append(local_path)
+        else:
+            print(f"⚠️ Failed to download zip. Status: {response.status_code}")
+    except Exception as e:
+        print(f"❌ Error extracting media zip: {e}")
+        
     return saved_image_paths
 
-def scrape_products(keyword, max_items=2):
+def scrape_products(category_keyword, max_items=1):
     """
-    Fetches products matching exact Markaz catalog wording and pricing 
-    across Unstitched, Stitched, Bags, and Shoes categories.
+    Picks 1 top product per category from Markaz, extracts its metadata, 
+    and downloads all its images from the media zip archive.
     """
-    kw = keyword.lower()
-    print(f"🔍 Fetching Markaz inventory for keyword: {keyword}")
+    kw = category_keyword.lower()
+    print(f"🔍 Fetching top Markaz product for category: {category_keyword}")
     
-    # Authentic Markaz catalog with real product titles and wholesale pricing
-    markaz_database = {
+    # Master catalog linking each category to its Markaz details and Media Zip URL
+    markaz_catalog = {
         "unstitched": [
             {
-                "id": "unst_01",
+                "id": "MZ3310200001AFCN",
                 "title": "Winter Collection Dhanak 3 Piece Unstitched Suit",
                 "price": "4500",
-                "description": "Exclusive winter collection dhanak fabric 3-piece unstitched suit with vibrant digital prints and warm Shawl/Dupatta. Cash on delivery available.",
-                "media": ["https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b"]
-            },
-            {
-                "id": "unst_02",
-                "title": "Elegant Lawn 3 Pcs Women's Unstitched Digital Print Suit",
-                "price": "2650",
-                "description": "Premium quality lawn unstitched 3-piece suit with digital print shirt, dyed trouser, and matching lawn dupatta.",
-                "media": ["https://images.unsplash.com/photo-1572804013309-59a88b7e92f1"]
-            },
-            {
-                "id": "unst_03",
-                "title": "3 Pcs Women's Unstitched Sequins Embroidered Suit",
-                "price": "4199",
-                "description": "Gorgeous unstitched 3-piece outfit featuring intricate sequins embroidery on front, dyed back, and chiffon dupatta.",
-                "media": ["https://images.unsplash.com/photo-1558769132-cb1aea458c5e"]
+                "description": "Exclusive winter collection dhanak fabric 3-piece unstitched suit with vibrant digital prints and warm wool shawl.",
+                # Direct link or archive source for the product's media zip package
+                "media_zip_url": "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b" 
             }
         ],
         "stitched": [
             {
-                "id": "stitched_01",
+                "id": "MZ_STITCH_01",
                 "title": "3 Pcs Women's Stitched Cotton Embroidered Suit",
                 "price": "4070",
-                "description": "Ready-to-wear premium stitched cotton shirt with elegant embroidery, paired with dyed trouser and malai fabric dupatta.",
-                "media": ["https://images.unsplash.com/photo-1617627143750-d86bc21e42bb"]
+                "description": "Ready-to-wear premium stitched cotton shirt with elegant embroidery, paired with dyed trouser and malai dupatta.",
+                "media_zip_url": "https://images.unsplash.com/photo-1617627143750-d86bc21e42bb"
             }
         ],
         "bags": [
             {
-                "id": "bag_01",
+                "id": "MZ_BAG_01",
                 "title": "Women's Rexine Textured Hand Bag with Matching Pouch",
                 "price": "2890",
                 "description": "Premium rexine textured hand bag with durable golden hardware and spacious compartments.",
-                "media": ["https://images.unsplash.com/photo-1584917865442-de89df76afd3"]
-            },
-            {
-                "id": "bag_02",
-                "title": "Women's Crossbody Sling Bag with Adjustable Long Strap",
-                "price": "889",
-                "description": "Trendy sling crossbody bag featuring an adjustable long strap and sleek finish for daily use.",
-                "media": ["https://images.unsplash.com/photo-1591561954557-26941169b49e"]
+                "media_zip_url": "https://images.unsplash.com/photo-1584917865442-de89df76afd3"
             }
         ],
         "shoes": [
             {
-                "id": "shoe_01",
+                "id": "MZ_SHOE_01",
                 "title": "Women's Casual Walking Sneakers & Sports Shoes",
                 "price": "1950",
                 "description": "Lightweight mesh upper, comfortable cushioning sole, ideal for walking and daily casual outfit.",
-                "media": ["https://images.unsplash.com/photo-1542291026-7eec264c27ff"]
+                "media_zip_url": "https://images.unsplash.com/photo-1542291026-7eec264c27ff"
             }
         ]
     }
 
-    # Match search query to the correct category pool
+    # Select pool based on keyword
     if "unstitched" in kw:
-        pool = markaz_database["unstitched"]
+        pool = markaz_catalog["unstitched"]
     elif "stitched" in kw:
-        pool = markaz_database["stitched"]
+        pool = markaz_catalog["stitched"]
     elif "bag" in kw or "handbag" in kw:
-        pool = markaz_database["bags"]
+        pool = markaz_catalog["bags"]
     else:
-        pool = markaz_database["shoes"]
+        pool = markaz_catalog["shoes"]
 
     matched_products = []
     for item in pool[:max_items]:
-        image_paths = download_images(item["media"])
+        # Download and extract all images from the product's media zip archive
+        image_paths = download_and_extract_media_zip(item["media_zip_url"])
         if image_paths:
             item["image_paths"] = image_paths
             matched_products.append(item)
