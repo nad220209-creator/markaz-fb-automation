@@ -2,22 +2,30 @@ import os
 import io
 import zipfile
 import requests
+from bs4 import BeautifulSoup
 from PIL import Image
 
-def download_and_extract_all_images(media_url, product_url):
-    """Downloads official Markaz media package/zip, extracts all images as clean .jpg files."""
+def download_and_extract_markaz_media(media_url):
+    """
+    Downloads real product media from Markaz (ZIP archive or direct images) 
+    and extracts every photo into clean .jpg files.
+    """
     os.makedirs("/tmp/scraped_images", exist_ok=True)
     saved_image_paths = []
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://www.markaz.app/"
     }
     
     try:
+        print(f"📥 Downloading live media from Markaz...")
         response = requests.get(media_url, headers=headers, timeout=30)
         if response.status_code == 200:
             content = response.content
+            # Check if it's a ZIP file (Download Media package)
             if b"PK\x03\x04" in content[:4] or zipfile.is_zipfile(io.BytesIO(content)):
+                print("📦 Unzipping Markaz media package...")
                 with zipfile.ZipFile(io.BytesIO(content)) as z:
                     for filename in z.namelist():
                         if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
@@ -26,93 +34,148 @@ def download_and_extract_all_images(media_url, product_url):
                                 img = Image.open(io.BytesIO(img_data))
                                 if img.mode in ("RGBA", "P"):
                                     img = img.convert("RGB")
-                                local_path = os.path.join("/tmp/scraped_images", f"img_{len(saved_image_paths)+1}.jpg")
+                                local_path = os.path.join("/tmp/scraped_images", f"live_img_{len(saved_image_paths)+1}.jpg")
                                 img.save(local_path, "JPEG", quality=95)
                                 saved_image_paths.append(local_path)
-                            except:
-                                pass
+                            except Exception as e:
+                                print(f"⚠️ Skipped image {filename}: {e}")
             else:
+                # Direct image file
                 img = Image.open(io.BytesIO(content))
                 if img.mode in ("RGBA", "P"):
                     img = img.convert("RGB")
-                local_path = os.path.join("/tmp/scraped_images", "img_1.jpg")
+                local_path = os.path.join("/tmp/scraped_images", "live_img_1.jpg")
                 img.save(local_path, "JPEG", quality=95)
                 saved_image_paths.append(local_path)
     except Exception as e:
-        print(f"⚠️ Media download warning: {e}")
+        print(f"❌ Error downloading media: {e}")
         
-    # Fallback sample images if download fails
-    if not saved_image_paths:
-        fallback_urls = [
-            "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b",
-            "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1"
-        ]
-        for idx, url in enumerate(fallback_urls, start=1):
-            try:
-                res = requests.get(url, headers=headers, timeout=10)
-                if res.status_code == 200:
-                    img = Image.open(io.BytesIO(res.content)).convert("RGB")
-                    path = os.path.join("/tmp/scraped_images", f"img_{idx}.jpg")
-                    img.save(path, "JPEG", quality=95)
-                    saved_image_paths.append(path)
-            except:
-                pass
-
     return saved_image_paths
 
-def scrape_products(category_name, max_items=1):
-    """Picks top products with correct Markaz product links and media."""
-    cat = category_name.lower()
+def scrape_product_from_url(product_url):
+    """
+    Scrapes a live Markaz product page URL, extracts real title, price, 
+    overview highlights, and downloads real media.
+    """
+    print(f"🔍 Scraping live Markaz URL: {product_url}")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://www.markaz.app/"
+    }
     
-    markaz_catalog = {
+    try:
+        res = requests.get(product_url, headers=headers, timeout=25)
+        if res.status_code != 200:
+            print(f"❌ Failed to reach URL. Status: {res.status_code}")
+            return None
+            
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # 1. Extract live title
+        title_elem = soup.find('h1') or soup.find('h3')
+        title = title_elem.text.strip() if title_elem else "Markaz Product"
+        
+        # 2. Extract live price
+        price = "2000"
+        price_elem = soup.find(string=lambda t: t and 'PKR' in t)
+        if price_elem:
+            digits = ''.join(filter(str.isdigit, price_elem))
+            if digits and len(digits) <= 6:
+                price = digits
+                
+        # 3. Extract product overview highlights
+        highlights = []
+        for p in soup.find_all(['li', 'p', 'div']):
+            text = p.text.strip()
+            if text and ("FABRIC:" in text or "PATTERN:" in text or "PIECES:" in text or "INCLUDES:" in text or "SKU:" in text):
+                if text not in highlights:
+                    highlights.append(text)
+                    
+        description = "\n".join(highlights) if highlights else f"{title}\nHigh quality product from Markaz. Cash on Delivery available."
+        
+        # 4. Extract Product ID from URL
+        product_id = product_url.rstrip('/').split('/')[-1]
+        
+        # 5. Locate download media link or product image links on page
+        media_link = product_url
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            if 'zip' in href or 'media' in href or 'download' in href.lower():
+                media_link = "https://www.markaz.app" + href if href.startswith('/') else href
+                break
+                
+        # Scrape image URLs directly from page if zip link isn't standalone
+        page_image_urls = []
+        for img in soup.find_all('img'):
+            src = img.get('src') or img.get('data-src')
+            if src and ('product' in src or 'upload' in src or 'images' in src):
+                if src.startswith('/'):
+                    src = "https://www.markaz.app" + src
+                if src not in page_image_urls:
+                    page_image_urls.append(src)
+                    
+        # Download images
+        image_paths = []
+        if media_link and media_link != product_url:
+            image_paths = download_and_extract_markaz_media(media_link)
+            
+        if not image_paths and page_image_urls:
+            for idx, img_url in enumerate(page_image_urls[:6], start=1):
+                try:
+                    img_res = requests.get(img_url, headers=headers, timeout=10)
+                    if img_res.status_code == 200:
+                        img = Image.open(io.BytesIO(img_res.content)).convert("RGB")
+                        path = os.path.join("/tmp/scraped_images", f"live_img_{idx}.jpg")
+                        img.save(path, "JPEG", quality=95)
+                        image_paths.append(path)
+                except:
+                    pass
+
+        if not image_paths:
+            print("⚠️ No images found for this product.")
+            return None
+
+        return {
+            "id": product_id,
+            "title": title,
+            "price": price,
+            "description": description,
+            "product_url": product_url,
+            "image_paths": image_paths
+        }
+        
+    except Exception as e:
+        print(f"❌ Error scraping live product URL: {e}")
+        return None
+
+def scrape_products(category_name, max_items=1):
+    """
+    Directly scrapes live Markaz product URLs for the given category.
+    """
+    print(f"🔍 Live scraping Markaz catalog for category: {category_name}")
+    
+    # Configure your live Markaz product URLs here per category
+    category_live_urls = {
         "unstitched": [
-            {
-                "id": "MZ3310200001AFCN",
-                "title": "Winter Collection Dhanak 3 Piece Unstitched Suit",
-                "price": "4500",
-                "description": "HIGHLIGHTS:\n- SHIRT FABRIC: Dhanak\n- PATTERN: Embroidered\n- DUPATTA FABRIC: Wool\n- NUMBER OF PIECES: 3 Pcs",
-                "product_url": "https://www.markaz.app/shop/product/winter-collection-dhanak-3-piece-unstitched-suit/763861",
-                "media_source": "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b"
-            }
+            "https://www.markaz.app/shop/product/winter-collection-dhanak-3-piece-unstitched-suit/763861"
         ],
         "stitched": [
-            {
-                "id": "MZ_STITCH_01",
-                "title": "3 Pcs Women's Stitched Cotton Embroidered Suit",
-                "price": "4070",
-                "description": "Ready-to-wear premium stitched cotton shirt with elegant embroidery and dyed trouser.",
-                "product_url": "https://www.markaz.app/shop/product/winter-collection-dhanak-3-piece-unstitched-suit/763861",
-                "media_source": "https://images.unsplash.com/photo-1617627143750-d86bc21e42bb"
-            }
+            # Add live Markaz stitched product URL here when ready
         ],
         "bags": [
-            {
-                "id": "MZ_BAG_01",
-                "title": "Women's Rexine Textured Hand Bag with Matching Pouch",
-                "price": "2890",
-                "description": "Premium rexine textured hand bag with durable golden hardware and spacious compartments.",
-                "product_url": "https://www.markaz.app/shop/product/winter-collection-dhanak-3-piece-unstitched-suit/763861",
-                "media_source": "https://images.unsplash.com/photo-1584917865442-de89df76afd3"
-            }
+            # Add live Markaz bag product URL here when ready
         ],
         "shoes": [
-            {
-                "id": "MZ_SHOE_01",
-                "title": "Women's Casual Walking Sneakers & Sports Shoes",
-                "price": "1950",
-                "description": "Lightweight mesh upper, comfortable cushioning sole for daily walk.",
-                "product_url": "https://www.markaz.app/shop/product/winter-collection-dhanak-3-piece-unstitched-suit/763861",
-                "media_source": "https://images.unsplash.com/photo-1542291026-7eec264c27ff"
-            }
+            # Add live Markaz shoe product URL here when ready
         ]
     }
 
-    pool = markaz_catalog.get(cat, markaz_catalog["unstitched"])
-    matched = []
-    for item in pool[:max_items]:
-        image_paths = download_and_extract_all_images(item["media_source"], item["product_url"])
-        if image_paths:
-            item["image_paths"] = image_paths
-            matched.append(item)
+    urls_to_scrape = category_live_urls.get(category_name.lower(), [])
+    matched_products = []
+    
+    for url in urls_to_scrape[:max_items]:
+        product_data = scrape_product_from_url(url)
+        if product_data:
+            matched_products.append(product_data)
             
-    return matched
+    return matched_products
