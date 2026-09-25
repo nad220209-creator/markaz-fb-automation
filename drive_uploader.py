@@ -37,8 +37,8 @@ def upload_product_folder(date_str, product_title, image_paths, title, price, de
     # 1. Get or create Today's Date folder inside Markaz Product Images
     date_folder_id = get_or_create_folder(service, date_str, PARENT_FOLDER_ID)
     
-    # 2. Clean product title for folder name (remove special characters)
-    safe_folder_name = "".(c for c in product_title if c.isalnum() or c in (' ', '-', '_')).strip()[:50]
+    # 2. Clean product title for folder name (Fixed with .join)
+    safe_folder_name = "".join(c for c in product_title if c.isalnum() or c in (' ', '-', '_')).strip()[:50]
     product_folder_id = get_or_create_folder(service, safe_folder_name, date_folder_id)
     
     # 3. Save and upload details.txt containing SEO info
