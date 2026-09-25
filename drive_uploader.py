@@ -38,7 +38,7 @@ def upload_product_folder(date_str, category_name, product_id, product_title, im
     unique_folder_name = f"{safe_title}_{str(product_id)[-6:]}"
     product_folder_id = get_or_create_folder(service, unique_folder_name, category_folder_id)
     
-    # 4. Upload details.txt with Markaz Product Link
+    # 4. Upload details.txt with the specific dynamic Markaz Link for this product
     details_path = "/tmp/details.txt"
     with open(details_path, "w", encoding="utf-8") as f:
         f.write(f"Title: {title}\nPrice: PKR {price}\nMarkaz Link: {product_url}\n\nDescription:\n{description}")
