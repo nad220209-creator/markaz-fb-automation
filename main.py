@@ -24,13 +24,14 @@ def main():
             print(f"\n[Skipping Already Processed]: {product['title']}")
             continue
 
-        print(f"\n[PRODUCT #{i}]")
-        print(f"Title: {product['title']}")
-        print(f"Price: {product['price']}")
-        print(f"Direct Markaz Link: {url}")
-        print("Images Found:", len(product['images']))
+        print(f"\n[SHOE PRODUCT #{i}]")
+        print(f"📌 Title: {product['title']}")
+        print(f"💰 Price: {product['price']}")
+        print(f"🔗 Full Product Detail Link: {url}")
+        
+        print("\n📸 Product Image Links (Save these for Facebook Marketplace):")
         for img in product['images']:
-            print(f"  - {img}")
+            print(f"   - {img}")
 
         print("\n--- GENERATING AI SALES COPY ---")
         ai_output = generate_optimized_content(
@@ -40,11 +41,11 @@ def main():
         )
         print(ai_output)
         
-        print("\n--- ORDER INFO ---")
+        print("\n--- ORDER & VERIFICATION INFO ---")
         print(f"WhatsApp Order Link: {WHATSAPP_LINK}")
+        print(f"Direct Verification Link: {url}")
         print("=" * 60)
 
-        # Mark as processed so next run pulls new products
         mark_processed(url, history)
 
 if __name__ == "__main__":
