@@ -12,7 +12,9 @@ def get_drive_service():
         print("Error: GOOGLE_DRIVE_CREDENTIALS secret is missing.")
         return None
     try:
-        creds_dict = json.loads(creds_json)
+        # Clean up whitespace and potential newline issues from GitHub Secrets
+        cleaned_creds = creds_json.strip()
+        creds_dict = json.loads(cleaned_creds)
         creds = service_account.Credentials.from_service_account_info(
             creds_dict, scopes=['https://www.googleapis.com/auth/drive']
         )
