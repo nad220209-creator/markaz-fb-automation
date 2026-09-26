@@ -1,103 +1,93 @@
 import os
-import json
 import datetime
+import requests
 from scraper import scrape_shoes_products
 from ai_generator import generate_optimized_content
 from history_manager import load_history, is_processed, mark_processed
 
 WHATSAPP_LINK = "https://wa.me/923374633605"
-JSON_FILE = "products.json"
-MD_FILE = "PRODUCTS_CATALOG.md"
-
-def load_json_catalog():
-    if os.path.exists(JSON_FILE):
-        try:
-            with open(JSON_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-def save_json_catalog(catalog):
-    with open(JSON_FILE, "w", encoding="utf-8") as f:
-        json.dump(catalog, f, indent=4, ensure_ascii=False)
-
-def update_markdown_catalog(catalog):
-    md_content = f"# 👟 Markaz Shoes Facebook Marketplace Catalog\n\n"
-    md_content += f"*Total Products: {len(catalog)}* | *Last Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
-    md_content += "--- \n\n"
-    md_content += "> **How to Use:** Open this file on GitHub, copy the SEO Title, SEO Keywords, and Roman Urdu Description directly into Facebook Marketplace. Click the image links to view/download photos.\n\n"
-    md_content += "---\n\n"
-
-    for idx, item in enumerate(catalog, start=1):
-        md_content += f"## 📦 Product #{idx}: {item['title']}\n\n"
-        md_content += f"### 💰 Pricing & Links\n"
-        md_content += f"- **Price:** `{item['price']}`\n"
-        md_content += f"- **Direct Markaz Product Link:** [View on Markaz]({item['url']})\n"
-        md_content += f"- **WhatsApp Order Link:** [Order Now]({item['whatsapp_link']})\n\n"
-        
-        md_content += f"### 🔍 SEO Keywords (For Marketplace Tags)\n"
-        md_content += f"`{item['keywords']}`\n\n"
-        
-        md_content += f"### 📝 Roman Urdu Description (Copy & Paste)\n"
-        md_content += f"```text\n{item['description']}\n```\n\n"
-        
-        md_content += f"### 📸 Product Images (Right-click to Save)\n"
-        for i, img in enumerate(item['images'], start=1):
-            md_content += f"- [Image {i} Link]({img})\n"
-        
-        md_content += "\n---\n\n"
-
-    with open(MD_FILE, "w", encoding="utf-8") as f:
-        f.write(md_content)
+BASE_DIR = os.path.join("products", "category", "shoes")
 
 def main():
-    print("Starting Markaz Shoes Catalog Generator...")
+    print("Starting Markaz Shoes Local Folder & Details Generator...")
     history = load_history()
-    existing_catalog = load_json_catalog()
-    existing_urls = {item['url'] for item in existing_catalog}
     
-    products = scrape_shoes_products(max_products=5)
+    products = scrape_shoes_products(max_products=3)
     if not products:
         print("No products found.")
         return
+
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    date_folder = os.path.join(BASE_DIR, date_str)
+    os.makedirs(date_folder, exist_ok=True)
 
     new_items_added = False
 
     for product in products:
         url = product['url']
-        if is_processed(url, history) or url in existing_urls:
+        if is_processed(url, history):
             print(f"Skipping already processed product: {product['title']}")
             continue
 
-        print(f"Processing new product & generating SEO copy: {product['title']}")
+        print(f"Processing and generating files for: {product['title']}")
         ai_data = generate_optimized_content(
             product_title=product['title'],
             raw_overview=product['overview'],
             price=product['price']
         )
 
-        catalog_entry = {
-            "title": ai_data['title'],
-            "price": product['price'],
-            "keywords": ai_data['keywords'],
-            "description": ai_data['description'],
-            "url": url,
-            "whatsapp_link": WHATSAPP_LINK,
-            "images": product['images'],
-            "date_added": datetime.datetime.now().strftime("%Y-%m-%d")
-        }
+        # Create safe folder name for the product under the date folder
+        safe_title = "".join(c for c in ai_data['title'] if c.isalnum() or c in (' ', '_', '-')).strip()[:40]
+        product_folder = os.path.join(date_folder, safe_title)
+        os.makedirs(product_folder, exist_ok=True)
 
-        existing_catalog.insert(0, catalog_entry)
+        # Download images locally as .jpg files
+        saved_images = []
+        for idx, img_url in enumerate(product['images'], start=1):
+            try:
+                img_data = requests.get(img_url, timeout=10).content
+                img_path = os.path.join(product_folder, f"image_{idx}.jpg")
+                with open(img_path, "wb") as f:
+                    f.write(img_data)
+                saved_images.append(img_path)
+            except Exception as e:
+                print(f"Failed to download image {idx}: {e}")
+
+        # Create details.txt file with price, keywords, description, and links
+        details_content = f"""========================================
+MARKAZ SHOES - FACEBOOK MARKETPLACE LISTING
+========================================
+
+SEO TITLE:
+{ai_data['title']}
+
+PRICE:
+{product['price']}
+
+SEO RANKED KEYWORDS (FOR MARKETPLACE TAGS):
+{ai_data['keywords']}
+
+ROMAN URDU SALES DESCRIPTION:
+{ai_data['description']}
+
+----------------------------------------
+VERIFICATION & ORDER LINKS:
+- Direct Markaz Product Link: {url}
+- WhatsApp Order Link: {WHATSAPP_LINK}
+========================================
+"""
+        details_path = os.path.join(product_folder, "details.txt")
+        with open(details_path, "w", encoding="utf-8") as f:
+            f.write(details_content)
+
         mark_processed(url, history)
         new_items_added = True
+        print(f"Successfully created folder structure and files in: {product_folder}")
 
     if new_items_added:
-        save_json_catalog(existing_catalog)
-        update_markdown_catalog(existing_catalog)
-        print(f"Successfully updated catalog! Total items: {len(existing_catalog)}")
+        print("All folders, images, and details files created successfully!")
     else:
-        print("No new products found to add.")
+        print("No new products to process.")
 
 if __name__ == "__main__":
     main()
