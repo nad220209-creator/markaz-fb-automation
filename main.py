@@ -24,7 +24,7 @@ def save_json_catalog(catalog):
 
 def update_markdown_catalog(catalog):
     md_content = f"# 👟 Markaz Shoes Facebook Marketplace Catalog\n\n"
-    md_content += f"*Last Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+    md_content += f"*Total Products: {len(catalog)}* | *Last Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
     md_content += "---\n\n"
 
     for idx, item in enumerate(catalog, start=1):
@@ -46,11 +46,13 @@ def update_markdown_catalog(catalog):
         f.write(md_content)
 
 def main():
-    print("Starting Markaz Shoes Catalog Generator...")
+    print("Starting Markaz Dynamic Shoes Catalog Generator...")
     history = load_history()
-    catalog = load_json_catalog()
+    existing_catalog = load_json_catalog()
+    existing_urls = {item['url'] for item in existing_catalog}
     
-    products = scrape_shoes_products(max_products=3)
+    # Scrape up to 5 fresh products per run
+    products = scrape_shoes_products(max_products=5)
     if not products:
         print("No products found.")
         return
@@ -59,11 +61,11 @@ def main():
 
     for product in products:
         url = product['url']
-        if is_processed(url, history):
-            print(f"Skipping already processed: {product['title']}")
+        if is_processed(url, history) or url in existing_urls:
+            print(f"Skipping already processed product: {product['title']}")
             continue
 
-        print(f"Processing & Generating SEO Copy for: {product['title']}")
+        print(f"Processing new product & generating SEO copy: {product['title']}")
         ai_data = generate_optimized_content(
             product_title=product['title'],
             raw_overview=product['overview'],
@@ -81,17 +83,16 @@ def main():
             "date_added": datetime.datetime.now().strftime("%Y-%m-%d")
         }
 
-        # Prepend new item to catalog list
-        catalog.insert(0, catalog_entry)
+        existing_catalog.insert(0, catalog_entry)
         mark_processed(url, history)
         new_items_added = True
 
     if new_items_added:
-        save_json_catalog(catalog)
-        update_markdown_catalog(catalog)
-        print("Successfully updated products.json and PRODUCTS_CATALOG.md!")
+        save_json_catalog(existing_catalog)
+        update_markdown_catalog(existing_catalog)
+        print(f"Successfully added new items! Total catalog size: {len(existing_catalog)}")
     else:
-        print("No new products to add.")
+        print("All scraped items were already in your catalog.")
 
 if __name__ == "__main__":
     main()
