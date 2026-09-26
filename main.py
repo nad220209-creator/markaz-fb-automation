@@ -25,20 +25,26 @@ def save_json_catalog(catalog):
 def update_markdown_catalog(catalog):
     md_content = f"# 👟 Markaz Shoes Facebook Marketplace Catalog\n\n"
     md_content += f"*Total Products: {len(catalog)}* | *Last Updated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+    md_content += "--- \n\n"
+    md_content += "> **How to Use:** Open this file on GitHub, copy the SEO Title, SEO Keywords, and Roman Urdu Description directly into Facebook Marketplace. Click the image links to view/download photos.\n\n"
     md_content += "---\n\n"
 
     for idx, item in enumerate(catalog, start=1):
-        md_content += f"## [{idx}] {item['title']}\n\n"
-        md_content += f"- **Price:** {item['price']}\n"
-        md_content += f"- **SEO Keywords:** `{item['keywords']}`\n"
-        md_content += f"- **Direct Product Link:** [View on Markaz]({item['url']})\n"
+        md_content += f"## 📦 Product #{idx}: {item['title']}\n\n"
+        md_content += f"### 💰 Pricing & Links\n"
+        md_content += f"- **Price:** `{item['price']}`\n"
+        md_content += f"- **Direct Markaz Product Link:** [View on Markaz]({item['url']})\n"
         md_content += f"- **WhatsApp Order Link:** [Order Now]({item['whatsapp_link']})\n\n"
         
-        md_content += f"### 📝 Roman Urdu Description:\n```text\n{item['description']}\n```\n\n"
+        md_content += f"### 🔍 SEO Keywords (For Marketplace Tags)\n"
+        md_content += f"`{item['keywords']}`\n\n"
         
-        md_content += f"### 📸 Product Images:\n"
-        for img in item['images']:
-            md_content += f"- ![{item['title']}]({img})\n"
+        md_content += f"### 📝 Roman Urdu Description (Copy & Paste)\n"
+        md_content += f"```text\n{item['description']}\n```\n\n"
+        
+        md_content += f"### 📸 Product Images (Right-click to Save)\n"
+        for i, img in enumerate(item['images'], start=1):
+            md_content += f"- [Image {i} Link]({img})\n"
         
         md_content += "\n---\n\n"
 
@@ -46,12 +52,11 @@ def update_markdown_catalog(catalog):
         f.write(md_content)
 
 def main():
-    print("Starting Markaz Dynamic Shoes Catalog Generator...")
+    print("Starting Markaz Shoes Catalog Generator...")
     history = load_history()
     existing_catalog = load_json_catalog()
     existing_urls = {item['url'] for item in existing_catalog}
     
-    # Scrape up to 5 fresh products per run
     products = scrape_shoes_products(max_products=5)
     if not products:
         print("No products found.")
@@ -90,9 +95,9 @@ def main():
     if new_items_added:
         save_json_catalog(existing_catalog)
         update_markdown_catalog(existing_catalog)
-        print(f"Successfully added new items! Total catalog size: {len(existing_catalog)}")
+        print(f"Successfully updated catalog! Total items: {len(existing_catalog)}")
     else:
-        print("All scraped items were already in your catalog.")
+        print("No new products found to add.")
 
 if __name__ == "__main__":
     main()
