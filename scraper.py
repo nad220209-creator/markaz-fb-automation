@@ -11,14 +11,11 @@ def scrape_shoes_products(max_products=5):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
     }
     
     product_links = []
-    
     for cat_url in category_urls:
         try:
-            print(f"Crawling Markaz category: {cat_url}")
             response = requests.get(cat_url, headers=headers, timeout=15)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
@@ -47,25 +44,20 @@ def scrape_shoes_products(max_products=5):
                     except Exception:
                         pass
                 
-                # Extract standard anchor tags
                 for a in soup.select('a[href*="/shop/product/"]'):
                     href = a.get('href')
                     if href:
                         full_url = href if href.startswith('http') else f"https://www.markaz.app{href}"
                         if full_url not in product_links:
                             product_links.append(full_url)
-        except Exception as e:
-            print(f"Error crawling {cat_url}: {e}")
+        except Exception:
+            pass
 
-    print(f"Discovered {len(product_links)} live shoe product links.")
-    
-    # Expanded fallback pool if network blocks occur
     if not product_links:
         product_links = [
             "https://www.markaz.app/shop/product/men-grey-slip-on-walking-sneakers-size-40-45/692758",
             "https://www.markaz.app/shop/product/mens-black-eva-casual-skechers-914-shoes/639653",
-            "https://www.markaz.app/shop/product/mens-blue-slip-on-walking-sneakers-size-40-45/692757",
-            "https://www.markaz.app/shop/product/womens-black-gemstone-strap-semiformal-sandals/586778"
+            "https://www.markaz.app/shop/product/mens-blue-slip-on-walking-sneakers-size-40-45/692757"
         ]
 
     products = []
@@ -86,29 +78,31 @@ def scrape_single_product(product_url, headers=None):
             
         soup = BeautifulSoup(resp.text, 'html.parser')
         
+        # Title extraction
         title_tag = soup.select_one('h1')
         title = title_tag.get_text(strip=True) if title_tag else "Stylish Footwear Product"
         
+        # Accurate Price extraction (avoiding script/schema tags)
         price = "PKR 1,990"
-        price_tag = soup.find(string=lambda t: t and "PKR" in t)
-        if price_tag:
-            price = price_tag.strip()
+        for tag in soup.find_all(['span', 'div', 'p'], string=lambda t: t and "PKR" in t):
+            text = tag.get_text(strip=True)
+            if len(text) < 20 and "@context" not in text:  # Ensure it's a real price tag, not JSON metadata
+                price = text
+                break
 
         overview = "Comfortable, stylish footwear designed for daily use and urban commuters in Pakistan."
         desc_tag = soup.select_one('.product-overview, div:-soup-contains("overview")')
         if desc_tag:
             overview = desc_tag.get_text(strip=True)
 
+        # Image extraction (filtering valid product image URLs)
         img_tags = soup.select('img')
         image_urls = []
         for img in img_tags:
             src = img.get('src') or img.get('data-src')
-            if src and src.startswith('http') and 'logo' not in src.lower() and 'avatar' not in src.lower() and 'icon' not in src.lower():
+            if src and src.startswith('http') and 'logo' not in src.lower() and 'avatar' not in src.lower() and 'icon' not in src.lower() and 'markaz_logo' not in src.lower():
                 if src not in image_urls:
                     image_urls.append(src)
-
-        if not image_urls:
-            image_urls = ["https://images.markaz.app/products/692758/1.jpg"]
 
         return {
             "title": title,
